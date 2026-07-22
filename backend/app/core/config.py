@@ -24,37 +24,36 @@ class Settings(BaseSettings):
     # ==========================================
     # APPLICATION
     # ==========================================
-    APP_NAME: str = "OASIS AI Copilot"
-    APP_ENV: str = "development"
-    DEBUG: bool = True
+    app_name: str = "OASIS AI Copilot"
+    app_env: str = "development"
+    debug: bool = True
 
     # ==========================================
     # DATABASE
     # ==========================================
-    DATABASE_URL: str
+    database_url: str
 
     # ==========================================
     # JWT
     # ==========================================
-    JWT_SECRET_KEY: str
-    JWT_ALGORITHM: str = "HS256"
-    JWT_EXPIRE_MINUTES: int = 60
+    jwt_secret_key: str
+    jwt_algorithm: str = "HS256"
+    jwt_expire_minutes: int = 60
 
     # ==========================================
     # CHROMADB
     # ==========================================
-    CHROMA_HOST: str = "localhost"
-    CHROMA_PORT: int = 8001
+    chroma_host: str = "localhost"
+    chroma_port: int = 8001
 
     # ==========================================
     # LLM
     # ==========================================
-    GROQ_API_KEY: str
-    ANTHROPIC_API_KEY: str = ""
+    groq_api_key: str
+    anthropic_api_key: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",
-        case_sensitive=True,
         extra="ignore",
     )
 
