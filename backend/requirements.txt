@@ -1,4 +1,3 @@
-
 alembic
 altair
 annotated-types
@@ -221,4 +220,8 @@ zopfli
 python-jose
 passlib
 bcrypt
-
+beautifulsoup4
+markdownify
+pyyaml 
+requests 
+pypdf

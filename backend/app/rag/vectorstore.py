@@ -19,7 +19,9 @@ def add_chunks(collection_name: str, chunks: list[str], source: str):
     ids = [f"{source}_{i}" for i in range(len(chunks))]
     metadatas = [{"source": source, "chunk_index": i} for i in range(len(chunks))]
 
-    collection.add(
+    # upsert rend l'indexation relancable : un document deja indexe est mis a
+    # jour au lieu de provoquer une erreur d'identifiant duplique.
+    collection.upsert(
         ids=ids,
         embeddings=embeddings,
         documents=chunks,

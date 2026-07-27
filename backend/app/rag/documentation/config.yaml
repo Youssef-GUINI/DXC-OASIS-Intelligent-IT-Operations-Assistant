@@ -1,0 +1,37 @@
+# Liste des sources de documentation à récupérer et indexer, par persona.
+#
+# "selector" est optionnel : un sélecteur CSS pour cibler la zone de contenu
+# utile dans la page (évite d'indexer menus/footers). Si absent, le
+# convertisseur essaie de deviner intelligemment (balise <main> ou <article>).
+
+storage:
+  - url: "https://docs.netapp.com/us-en/storage-management-cloud-volumes-ontap/task-manage-volumes.html"
+    format: html
+    output: netapp_volume_management.md
+    selector: "main"
+
+  - url: "https://helpcenter.veeam.com/docs/vbr/userguide/full_recovery.html"
+    format: html
+    output: veeam_backup_restore.md
+    selector: "main"
+
+  - url: "https://www.truenas.com/docs/scale/storage/pools/managepools/"
+    format: html
+    output: truenas_administration.md
+    selector: "main"
+
+  - url: "https://docs.aws.amazon.com/ebs/latest/userguide/EBSFeatures.html"
+    format: html
+    output: aws_ebs_s3.md
+    selector: "main"
+
+  # Exemple pour une source PDF (IBM) — à compléter avec la vraie URL
+  # du document une fois trouvée.
+  # - url: "https://exemple.com/ibm-storage-sops.pdf"
+  #   format: pdf
+  #   output: ibm_storage_sops.md
+
+linux:
+  # À compléter par le binôme au fur et à mesure des besoins,
+  # même principe que pour storage.
+  []
