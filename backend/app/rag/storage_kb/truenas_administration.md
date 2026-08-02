@@ -486,11 +486,6 @@ Avoid physically removing or attempting to wipe the disks until the removal oper
 
 For further discussion or assistance, see these resources:
 
-* [TrueNAS Community Forum](https://forums.truenas.com/)
-* [TrueNAS Community Discord](https://discord.com/invite/Q3St5fPETd)
-* [TrueNAS Enterprise Support (requires paid support contract)](https://www.ixsystems.com/support/)
-
 Found content that needs an update?
 You can
-[**suggest content changes**](https://github.com/truenas/documentation/edit/master/content/SCALE/Storage/Pools/ManagePools.md)
 directly! To request changes to this content, click the **Feedback** button located on the middle-right side of the page (might require disabling ad blocking plugins).

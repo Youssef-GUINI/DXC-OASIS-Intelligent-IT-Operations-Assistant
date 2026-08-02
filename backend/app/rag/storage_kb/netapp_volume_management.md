@@ -1,44 +1,20 @@
-![](https://docs.netapp.com/common/2/images/double_arrow.svg)
-
-![](https://docs.netapp.com/common/2/images/double_arrow.svg)
-
-* [All docs](https://docs.netapp.com)
-* [Storage Management](https://docs.netapp.com/us-en/storage-management-family/)
-
 Cloud Volumes ONTAP
 
 Cloud provider
 All cloud providers
-![](https://docs.netapp.com/common/2/images/dropdown-arrow.svg)
-![](https://docs.netapp.com/common/2/images/dropdown-arrow.svg)
 
 * Amazon Web Services
 * Google Cloud
 * Microsoft Azure
 * All cloud providers
 
-![](https://docs.netapp.com/common/2/images/loupe.svg)
-
-![](https://docs.netapp.com/common/2/images/notification-icons.svg)
-
 The requested article is not available. Either it doesn't apply to this version of the product or the relevant information is organized differently in this version of the docs. You can search, browse, or go back to the other version.
-
-![](https://docs.netapp.com/common/2/images/dismiss.svg)
 
 # Manage volumes on Cloud Volumes ONTAP systems
 
 09/25/2025
 Contributors
 [![netapp-manini](https://avatars.githubusercontent.com/u/59729581?v=4)](https://github.com/netapp-manini)
-
-![](https://docs.netapp.com/common/2/images/discuss-sm.svg)Suggest changes
-![](https://docs.netapp.com/common/2/images/dropdown-arrow.svg)
-![](https://docs.netapp.com/common/2/images/dropdown-arrow.svg)
-
-* [Create a GitHub issue](https://github.com/NetAppDocs/storage-management-cloud-volumes-ontap/issues/new?template=new-from-page.yml&page-url=https://docs.netapp.com/us-en/storage-management-cloud-volumes-ontap/task-manage-volumes.html&page-title=Manage volumes on Cloud Volumes ONTAP systems)
-* [Send us an email](javascript:netapp_mailto())
-
-![](https://docs.netapp.com/common/2/images/pdf-icon.png)PDFs![](https://docs.netapp.com/common/2/images/dropdown-arrow.svg)
 
 * [![](https://docs.netapp.com/common/2/images/pdf-icon.png)PDF of this doc site](/us-en/storage-management-cloud-volumes-ontap/pdfs/fullsite-sidebar/Cloud_Volumes_ONTAP_documentation.pdf)
 
@@ -47,16 +23,6 @@ Contributors
 ```
 Collection of separate PDF docs
 ```](#)
-
-# Creating your file...
-
-This may take a few minutes. Thanks for your patience.
-
-Cancel
-
-Your file is ready
-
-OK
 
 You can manage volumes and CIFS servers in the NetApp Console. You can also move volumes to avoid capacity issues.
 
@@ -273,7 +239,3 @@ You can view FlexGroup volumes created through ONTAP System Manager or the ONTAP
 |  |  |
 | --- | --- |
 | Note | Currently, you can only view existing FlexGroup volumes under the Console. You can't create FlexGroup volumes in the Console. |
-
-![](https://docs.netapp.com/common/2/images/double_arrow.svg)
-
-![](https://docs.netapp.com/common/2/images/double_arrow.svg)

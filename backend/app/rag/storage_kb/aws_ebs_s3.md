@@ -2,10 +2,6 @@
 
 Features and benefits of Amazon EBS volumes - Amazon EBS
 
-[Documentation](/index.html)[Amazon EBS](/ebs/index.html)[User Guide](what-is-ebs.html)
-
-[Data availability](#availability-benefit)[Data persistence](#persistence-benefit)[Data encryption](#encryption-benefit)[Data security](#security-benefit)[Snapshots](#backup-benefit)[Flexibility](#flexibility-benefit)
-
 # Features and benefits of Amazon EBS volumes
 
 EBS volumes provide benefits that are not provided by instance store volumes.

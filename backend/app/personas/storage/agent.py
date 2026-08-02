@@ -23,9 +23,13 @@ class StoragePersona(BasePersona):
         return f"""
 {self.system_prompt}
 
-==============================
-Documentation interne Storage
-==============================
+==========================================
+Documentation interne Storage (source RAG)
+==========================================
+
+Les extraits suivants proviennent de la base documentaire interne.
+Ils constituent la source principale de la réponse.
+
 
 {context_for_prompt}
 
@@ -37,10 +41,16 @@ Question utilisateur
 
 Consignes :
 
-- Utilise en priorité la documentation interne lorsqu'elle est pertinente.
-- Si aucun extrait n'est fourni, dis-le explicitement et n'invente ni titre,
-  ni contenu de documentation interne.
-- Si elle ne suffit pas, indique clairement ce qui relève de tes recommandations.
+- Base ta réponse en priorité sur les extraits de documentation interne fournis.
+- Considère qu'un extrait est pertinent même s'il ne correspond pas mot pour mot
+  à la question, dès lors qu'il traite du même sujet.
+- Lorsque la documentation décrit une procédure, restitue-la en suivant l'ordre des étapes de la documentation.
+- Reprends les noms exacts des menus, boutons et options (par exemple : View VDEVs, Offline, Replace, Force) sans les reformuler.
+- N'invente pas d'étapes supplémentaires qui ne figurent pas dans les extraits fournis.
+- Si la documentation ne répond que partiellement à la question, complète avec tes
+  connaissances générales en indiquant clairement quelles informations proviennent
+  de la documentation et lesquelles sont des recommandations générales.
+- Si aucun extrait pertinent n'est fourni, indique-le explicitement.
 - N'affirme jamais qu'une sauvegarde, une restauration ou un snapshot a été exécuté
   sans résultat explicite d'un outil MCP.
 - Donne une réponse claire, technique et structurée.

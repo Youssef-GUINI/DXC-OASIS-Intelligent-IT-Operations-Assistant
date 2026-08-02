@@ -19,10 +19,7 @@ class ChatResponse(BaseModel):
 @router.post("/chat", response_model=ChatResponse)
 def chat(
     payload: ChatRequest,
-    current_user: User = Depends(
-        require_role("storage_engineer", "administrator")
-    ),
+    current_user: User = Depends(require_role("storage_engineer", "administrator")),
 ):
-    """Repond a une question du workspace Storage & Backup."""
     answer = storage_persona.handle_message(payload.message)
     return ChatResponse(response=answer)
