@@ -17,9 +17,9 @@ class ChatResponse(BaseModel):
 
 
 @router.post("/chat", response_model=ChatResponse)
-def chat(
+async def chat(
     payload: ChatRequest,
     current_user: User = Depends(require_role("storage_engineer", "administrator")),
 ):
-    answer = storage_persona.handle_message(payload.message)
+    answer = await storage_persona.handle_message(payload.message)
     return ChatResponse(response=answer)
