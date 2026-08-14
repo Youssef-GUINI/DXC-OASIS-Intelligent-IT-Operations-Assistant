@@ -15,6 +15,11 @@ from mcp.server.mcpserver import MCPServer
 
 from app.mcp.storage.tools import capacity, backup, snapshot, restore, disaster_recovery
 
+from app.mcp.storage.tools.backup import get_backup_job_status, get_backup_logs
+from app.mcp.storage.tools.disaster_recovery import get_replication_status
+from app.mcp.storage.tools.health import get_storage_health
+
+
 server = MCPServer("oasis-storage-mcp")
 
 
@@ -70,3 +75,29 @@ if __name__ == "__main__":
     # Point d'entrée du sous-process : boucle stdio bloquante tant que le
     # client (voir client.py) garde le process ouvert.
     server.run(transport="stdio")
+
+"""
+À AJOUTER dans app/mcp/storage/tool_server.py (fichier existant), à côté
+des 8 @server.tool() déjà déclarés. Ces wrappers restent minces, comme le
+reste du fichier — toute la logique est dans tools/*.py.
+"""
+
+
+@server.tool()
+def get_backup_job_status_tool(target: str | None = None) -> dict:
+    return get_backup_job_status(target)
+
+
+@server.tool()
+def get_backup_logs_tool(job_id: str, lines: int = 20) -> dict:
+    return get_backup_logs(job_id, lines)
+
+
+@server.tool()
+def get_replication_status_tool(target: str | None = None) -> dict:
+    return get_replication_status(target)
+
+
+@server.tool()
+def get_storage_health_tool() -> dict:
+    return get_storage_health()

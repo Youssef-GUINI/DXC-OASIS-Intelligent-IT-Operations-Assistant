@@ -226,3 +226,4 @@ pyyaml
 requests 
 pypdf
 mcp==2.0.0
+psutil

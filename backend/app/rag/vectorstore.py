@@ -44,3 +44,4 @@ def search(collection_name: str, query: str, n_results: int = 3) -> list[dict]:
     ):
         output.append({"text": doc, "source": metadata["source"], "distance": distance})
     return output
+
