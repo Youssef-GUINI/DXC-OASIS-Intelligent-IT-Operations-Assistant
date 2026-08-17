@@ -95,8 +95,11 @@ class ActionRequestOut(BaseModel):
     id: uuid.UUID
     action_type: str
     target: str
+    parameters: dict[str, Any] = Field(default_factory=dict)
     status: ActionRequestStatus
+    incident_ticket_id: uuid.UUID | None = None
     created_at: datetime
+    completed_at: datetime | None = None
     result: dict[str, Any] | None
 
     class Config:

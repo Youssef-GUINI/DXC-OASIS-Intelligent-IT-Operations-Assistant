@@ -4,12 +4,11 @@ from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config, pool
 from alembic import context
-
+from app.models import role, user, audit_log, access_request, incident_ticket, action_request
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from app.database.base import Base
 from app.core.config import settings
-from app.models import role, user, audit_log, access_request  # noqa: F401
 config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)

@@ -16,6 +16,7 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Integer,
     String,
     Text,
     func,
@@ -37,8 +38,10 @@ class MCPCall(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
-    # Qui a déclenché l'appel (l'utilisateur final, pas le LLM)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    # Qui a déclenché l'appel (l'utilisateur final, pas le LLM).
+    # CORRIGÉ : Integer -- users.id est un Integer, pas un UUID, même
+    # incompatibilité que celle déjà corrigée sur IncidentTicket.created_by.
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
 
     # Domaine du persona à l'origine de l'appel : "storage", "linux", ...
     persona = Column(String, nullable=False, index=True)

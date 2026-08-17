@@ -1,52 +1,50 @@
+"""Client Groq bas niveau, avec support natif du function/tool calling."""
+from __future__ import annotations
+
+from typing import Any
+import logging
 from groq import Groq
 
 from app.core.config import settings
 
+logger = logging.getLogger(__name__)
+
 
 class GroqClient:
-    def __init__(self):
+    def __init__(self) -> None:
         self.client = Groq(api_key=settings.groq_api_key)
+        self.model = getattr(settings, "groq_model", "openai/gpt-oss-120b")
 
     def chat(self, prompt: str, system_prompt: str | None = None) -> str:
-        messages = []
-
+        messages: list[dict[str, Any]] = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
-
         messages.append({"role": "user", "content": prompt})
+        return self.chat_with_tools(messages).content or ""
 
-        response = self.client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=messages,
-            temperature=0.3,
-        )
+    def chat_with_tools(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None) -> Any:
+        """Retourne le message complet pour que le persona puisse rejouer les tool calls."""
+        candidate_models = [self.model, "openai/gpt-oss-120b", "openai/gpt-oss-20b", "llama-3.3-70b-versatile"]
+        # deduplicate maintaining order
+        candidate_models = list(dict.fromkeys(candidate_models))
 
-        return response.choices[0].message.content
+        last_error = None
+        for candidate in candidate_models:
+            try:
+                options: dict[str, Any] = {"model": candidate, "messages": messages, "temperature": 0.3}
+                if tools:
+                    options.update({"tools": tools, "tool_choice": "auto"})
+                response = self.client.chat.completions.create(**options)
+                self.model = candidate
+                return response.choices[0].message
+            except Exception as e:
+                last_error = e
+                logger.warning("Groq model %s error: %s. Trying candidate fallback...", candidate, e)
+                continue
 
-    def chat_with_tools(self, messages: list[dict], tools: list[dict] | None = None):
-        """
-        Version bas niveau qui retourne l'objet message complet (pas juste
-        le texte), pour permettre au caller d'inspecter message.tool_calls
-        et de gérer lui-même la boucle d'exécution des tools.
-
-        Important : quand tools est None/vide, on OMET complètement les
-        paramètres tools et tool_choice de l'appel plutôt que de les passer
-        explicitement à None — l'API Groq rejette un tool_choice=null
-        explicite (400 Bad Request), elle attend soit une des 3 valeurs
-        ["none", "auto", "required"], soit l'absence totale du champ.
-        """
-        kwargs = {}
-        if tools:
-            kwargs["tools"] = tools
-            kwargs["tool_choice"] = "auto"
-
-        response = self.client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=messages,
-            temperature=0.3,
-            **kwargs,
-        )
-        return response.choices[0].message
+        if last_error:
+            raise last_error
 
 
 groq_client = GroqClient()
+

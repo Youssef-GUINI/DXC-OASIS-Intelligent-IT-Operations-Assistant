@@ -1,6 +1,10 @@
 """
 app/models/action_request.py
 
+CORRECTIF : requested_by et confirmed_by étaient déclarés en UUID alors
+que users.id est un Integer -- même incompatibilité que sur
+IncidentTicket.created_by. Passage à Integer.
+
 Représente une action sensible proposée par l'agent (ex: nettoyage de
 snapshots, restore, failover) qui ne peut être exécutée qu'après un clic
 explicite de l'ingénieur sur un bouton "Confirmer" côté frontend — jamais
@@ -10,7 +14,7 @@ sur simple texte "oui" dans le chat.
 import enum
 import uuid
 
-from sqlalchemy import Column, DateTime, Enum, ForeignKey, String, func
+from sqlalchemy import Column, DateTime, Enum, ForeignKey, Integer, String, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 
@@ -19,10 +23,10 @@ from app.database.base import Base
 
 class ActionRequestStatus(str, enum.Enum):
     PENDING = "pending"
-    CONFIRMED = "confirmed"     # confirmée par l'utilisateur, en cours d'exécution
+    CONFIRMED = "confirmed"
     COMPLETED = "completed"
     FAILED = "failed"
-    REJECTED = "rejected"       # l'utilisateur a explicitement refusé
+    REJECTED = "rejected"
 
 
 class ActionRequest(Base):
@@ -30,29 +34,17 @@ class ActionRequest(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
-    # Nom du tool MCP destiné à être appelé une fois confirmé
-    # (doit obligatoirement appartenir à _DESTRUCTIVE_TOOLS ou équivalent "sensible")
     action_type = Column(String, nullable=False, index=True)
-
-    # Cible précise de l'action, ex: volume_id, backup_id, target_site —
-    # stockée explicitement en plus de `parameters` pour affichage clair
-    # dans le bouton de confirmation ("Confirmer la restauration de vol-03
-    # depuis backup-2026-08-10")
     target = Column(String, nullable=False)
-
-    # Arguments complets qui seront envoyés au tool MCP à l'exécution
-    # (confirm=True est ajouté par le code au moment de l'exécution, jamais
-    # stocké ici tel quel avant confirmation réelle)
     parameters = Column(JSONB, nullable=False, default=dict)
-
     status = Column(Enum(ActionRequestStatus), nullable=False, default=ActionRequestStatus.PENDING)
 
-    requested_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    confirmed_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    # CORRIGÉS : Integer (users.id est un Integer, pas un UUID)
+    requested_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    confirmed_by = Column(Integer, ForeignKey("users.id"), nullable=True)
 
     incident_ticket_id = Column(UUID(as_uuid=True), ForeignKey("incident_tickets.id"), nullable=True)
 
-    # Résultat du tool MCP une fois exécuté (succès ou échec)
     result = Column(JSONB, nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

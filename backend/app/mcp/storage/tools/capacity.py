@@ -1,71 +1,80 @@
 """
 app/mcp/storage/tools/capacity.py
 
-RÉVISION (2026-08-12) : ce tool utilisait auparavant des données réelles
-(psutil.disk_partitions / shutil.disk_usage sur la machine hébergeant le
-backend). Décision initiale documentée dans JOURNAL_TECHNIQUE_SESSION.md
-section 2.4.
-
-Changement assumé : pour que l'analyse d'incident (analyze_incident) puisse
-corréler capacité / backup / DR sur un même identifiant de volume, capacity
-bascule sur des données SIMULÉES, avec les mêmes volume_id que ceux utilisés
-dans _SIMULATED_JOBS (backup.py) et _SIMULATED_DR_STATUS (disaster_recovery.py).
-Les volumes réels de la machine de dev/démo n'ont aucun rapport avec les
-volumes fictifs du scénario d'incident (vol-prod-db01, etc.), donc les
-mélanger produisait des résultats incohérents ("volume introuvable").
-
-À documenter explicitement dans le rapport comme un choix assumé, daté,
-et sa raison (cohérence de démo), pas comme une régression silencieuse.
+Lit la capacité réelle des volumes de la VM Storage via `df`, par SSH.
+Aucune donnée simulée : si la VM ne répond pas, on renvoie l'erreur.
 """
 
-_SIMULATED_VOLUMES = {
-    "vol-prod-db01": {
-        "volume_id": "vol-prod-db01",
-        "mountpoint": "/data/prod",
-        "device": "/dev/sdb1",
-        "filesystem": "ext4",
-        "total_gb": 500,
-        "used_gb": 465,
-        "percent_used": 93,
-    },
-    "vol-nas01": {
-        "volume_id": "vol-nas01",
-        "mountpoint": "/data/nas",
-        "device": "/dev/sdc1",
-        "filesystem": "xfs",
-        "total_gb": 2000,
-        "used_gb": 1400,
-        "percent_used": 70,
-    },
-    "vol-app01": {
-        "volume_id": "vol-app01",
-        "mountpoint": "/data/app",
-        "device": "/dev/sdd1",
-        "filesystem": "ext4",
-        "total_gb": 200,
-        "used_gb": 80,
-        "percent_used": 40,
-    },
-}
+from __future__ import annotations
+
+from app.mcp.storage.ssh import StorageVMError, run
+
+# Systèmes de fichiers "virtuels" que `df` remonte mais qui ne sont pas des
+# volumes de stockage.
+_IGNORED_FILESYSTEMS = ("tmpfs", "devtmpfs", "overlay", "proc", "sysfs", "cgroup", "squashfs")
+
+
+def _parse_df(output: str) -> list[dict]:
+    """
+    Parse la sortie de `df -T -B1 -P`.
+    -T : type de système de fichiers
+    -B1 : tailles en octets, pas d'arrondi ambigu
+    -P : format POSIX stable, une ligne par volume
+    """
+    volumes: list[dict] = []
+
+    for line in output.strip().splitlines()[1:]:  # ignore l'en-tête
+        parts = line.split()
+        if len(parts) < 7:
+            continue
+
+        device, filesystem, total_b, used_b, available_b, percent, mountpoint = parts[:7]
+
+        if filesystem in _IGNORED_FILESYSTEMS or not device.startswith("/dev/"):
+            continue
+
+        try:
+            total_gb = round(int(total_b) / (1024**3), 1)
+            used_gb = round(int(used_b) / (1024**3), 1)
+            available_gb = round(int(available_b) / (1024**3), 1)
+            percent_used = int(percent.rstrip("%"))
+        except ValueError:
+            continue
+
+        volume_id = mountpoint.strip("/").replace("/", "-") or device.replace("/dev/", "")
+
+        volumes.append({
+            "volume_id": volume_id,
+            "mountpoint": mountpoint,
+            "device": device,
+            "filesystem": filesystem,
+            "total_gb": total_gb,
+            "used_gb": used_gb,
+            "available_gb": available_gb,
+            "percent_used": percent_used,
+        })
+
+    return volumes
 
 
 def get_capacity(volume_id: str | None = None) -> dict:
     """
-    Retourne un volume précis (matché par volume_id, mountpoint ou device),
-    ou tous les volumes simulés si volume_id=None.
+    Retourne tous les volumes réels de la VM, ou celui qui correspond à
+    `volume_id` (matché sur l'identifiant, le point de montage ou le device).
     """
+    try:
+        volumes = _parse_df(run("df -T -B1 -P"))
+    except StorageVMError as error:
+        return {"error": str(error), "volumes": []}
+
     if volume_id is None:
-        return {"volumes": list(_SIMULATED_VOLUMES.values())}
+        return {"volumes": volumes}
 
-    volume = _SIMULATED_VOLUMES.get(volume_id)
-    if volume is None:
-        volume = next(
-            (v for v in _SIMULATED_VOLUMES.values()
-             if volume_id in (v["mountpoint"], v["device"])),
-            None,
-        )
+    match = next(
+        (v for v in volumes if volume_id in (v["volume_id"], v["mountpoint"], v["device"])),
+        None,
+    )
+    if match is None:
+        return {"error": f"No volume matching '{volume_id}' on the VM", "volumes": []}
 
-    if volume is None:
-        return {"error": f"Volume '{volume_id}' introuvable", "volumes": []}
-
-    return {"volumes": [volume]}
+    return {"volumes": [match]}

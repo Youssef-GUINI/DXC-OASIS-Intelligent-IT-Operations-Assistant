@@ -1,1 +1,42 @@
+# Environnements virtuels Python
+.venv/
+venv/
+ENV/
+env/
 backend/.venv/
+
+# Caches Python & Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Variables d'environnement et secrets
+.env
+*.env
+!.env.example
+
+# Frontend (Node / Vite / React)
+node_modules/
+frontend/node_modules/
+dist/
+frontend/dist/
+build/
+.npm
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Éditeurs et IDEs
+.vscode/
+.idea/
+.claude/
+*.swp
+*.swo
+
+# Fichiers OS
+.DS_Store
+Thumbs.db

@@ -1,218 +1,139 @@
+"""Persona Storage : RAG, tool calling Groq et garde-fou d'actions."""
+from __future__ import annotations
+
 import json
+import logging
 import uuid
 
+from app.llm.groq_client import groq_client
+from app.mcp.storage.client import StorageMCPClient
+from app.mcp.storage.server import DESTRUCTIVE_TOOLS
+from app.personas.storage.incident_rules import evaluate_tool_result
 from app.personas.storage.prompts import STORAGE_SYSTEM_PROMPT
 from app.rag.retriever import retriever
-from app.mcp.storage.client import storage_mcp_client
-from app.llm.groq_client import groq_client
-from app.mcp.storage.tools.health import get_storage_health
-from app.models.incident_ticket import IncidentSeverity
-from app.services.incident_service import estimate_severity
+from app.services import incident_service
 
-# Nombre max d'allers-retours LLM <-> tools avant d'arrêter la boucle,
-# pour éviter un enchaînement infini si le modèle appelle des tools en
-# boucle sans jamais conclure.
+# session.py confirme : SessionLocal est un sessionmaker SYNC classique
+# (sqlalchemy.orm.sessionmaker), pas un async_sessionmaker.
+from app.database.session import SessionLocal
+
+logger = logging.getLogger(__name__)
+
 _MAX_TOOL_ROUNDS = 6
-
-# Tools dont le paramètre confirm ne doit JAMAIS être décidé par le LLM
-# lui-même — cf. commentaire dans la boucle d'exécution plus bas.
-_DESTRUCTIVE_TOOLS = {"restore_from_backup", "initiate_failover"}
-_CONFIRM_KEYWORDS = ("je confirme", "confirmé", "confirme la", "oui confirme", "oui, confirme")
 
 
 class StoragePersona:
-    """
-    Persona spécialisé stockage/sauvegarde/reprise.
-
-    Contrairement à la version précédente (prompt statique + détection
-    par mots-clés), c'est ici le LLM lui-même qui décide, via le tool
-    calling natif de l'API Groq, s'il a besoin d'appeler un ou plusieurs
-    outils MCP, lesquels, et avec quels paramètres — avant de formuler sa
-    réponse finale.
-    """
-
     name = "storage_persona"
-    system_prompt = STORAGE_SYSTEM_PROMPT
     rag_collection = "storage_kb"
 
-    async def handle_message(self, user_message: str) -> str:
+    async def handle_message(self, user_message: str, created_by: int | None = None) -> str:
         context = retriever.retrieve(
-            collection_name=self.rag_collection,
-            question=user_message,
-            n_results=3,
+            collection_name=self.rag_collection, question=user_message, n_results=3
         )
-        context_for_prompt = context or "Aucun extrait de documentation interne pertinent n'a été trouvé."
+        messages: list[dict] = [
+            {"role": "system", "content": f"""{STORAGE_SYSTEM_PROMPT}
 
-        tools = await storage_mcp_client.list_tools_for_llm()
-
-        messages = [
-            {
-                "role": "system",
-                "content": f"""{self.system_prompt}
-
-Tu as accès à des outils MCP réels pour obtenir des données de stockage à jour (capacité disque, sauvegardes, snapshots, statut DR). Utilise-les dès que la question porte sur un état ou une donnée factuelle actuelle — n'invente jamais de chiffres.
-
-Documentation interne pertinente (source RAG) :
-{context_for_prompt}
-""",
-            },
+Utilise MCP uniquement pour les informations de stockage actuelles. Les outils
+de restauration et de failover ne sont jamais executables dans le chat : une
+action sensible doit etre proposee au frontend puis confirmee par son endpoint
+authentifie dedie. Documentation RAG :
+{context or 'Aucune documentation interne pertinente trouvee.'}"""},
             {"role": "user", "content": user_message},
         ]
 
-        for _ in range(_MAX_TOOL_ROUNDS):
-            assistant_message = groq_client.chat_with_tools(messages, tools=tools)
+        detected_tickets: list[dict] = []
+        final_text: str | None = None
+        correlation_id = uuid.uuid4()
 
-            if not assistant_message.tool_calls:
-                # Le LLM a jugé ne pas avoir besoin (ou plus besoin) d'outil,
-                # sa réponse est la réponse finale.
-                return assistant_message.content
+        # Session dédiée à l'audit des appels MCP, ouverte pour toute la boucle
+        # d'outils : tous les appels d'une même conversation partagent ainsi le
+        # même correlation_id. Sans created_by on ne sait pas à qui imputer
+        # l'appel -- on n'audite pas, plutôt que d'inventer un utilisateur.
+        audit_db = SessionLocal() if created_by is not None else None
 
-            # On rejoue le message assistant (avec ses tool_calls) dans
-            # l'historique, requis par l'API pour la suite de l'échange.
-            messages.append({
-                "role": "assistant",
-                "content": assistant_message.content or "",
-                "tool_calls": [
-                    {
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {"name": tc.function.name, "arguments": tc.function.arguments},
-                    }
-                    for tc in assistant_message.tool_calls
-                ],
-            })
+        try:
+            async with StorageMCPClient() as mcp:
+                tools = await mcp.list_tools_for_llm()
+                for _ in range(_MAX_TOOL_ROUNDS):
+                    reply = groq_client.chat_with_tools(messages, tools)
+                    if not reply.tool_calls:
+                        final_text = reply.content or "Je n'ai pas pu produire de reponse."
+                        break
 
-            for tool_call in assistant_message.tool_calls:
-                try:
-                    args = json.loads(tool_call.function.arguments) if tool_call.function.arguments else {}
-                except json.JSONDecodeError:
-                    args = {}
+                    messages.append({
+                        "role": "assistant", "content": reply.content or "",
+                        "tool_calls": [{
+                            "id": call.id, "type": "function",
+                            "function": {
+                                "name": call.function.name, "arguments": call.function.arguments,
+                            },
+                        } for call in reply.tool_calls],
+                    })
 
-                # Cas limite observé avec Groq : arguments="null" pour un tool
-                # sans paramètre (au lieu de "{}") -> json.loads le convertit
-                # en None, qui casse **args plus loin.
-                if not isinstance(args, dict):
-                    args = {}
+                    for call in reply.tool_calls:
+                        name = call.function.name
+                        try:
+                            arguments = json.loads(call.function.arguments or "{}")
+                            if not isinstance(arguments, dict):
+                                arguments = {}
+                        except json.JSONDecodeError:
+                            arguments = {}
 
-                # GARDE-FOU DE SÉCURITÉ : pour les actions destructives, le LLM
-                # ne décide JAMAIS lui-même de confirm=True — même s'il essaie.
-                # On écrase systématiquement ce paramètre par une vérification
-                # déterministe du message ORIGINAL de l'utilisateur pour ce tour
-                # de conversation. Sans ça, rien n'empêche le modèle de
-                # confirmer une restauration ou un failover de son propre chef
-                # dès le premier appel (bug constaté en test réel).
-                if tool_call.function.name in _DESTRUCTIVE_TOOLS:
-                    args["confirm"] = any(kw in user_message.lower() for kw in _CONFIRM_KEYWORDS)
+                        if name in DESTRUCTIVE_TOOLS:
+                            result = {
+                                "status": "denied", "reason": "confirmation_required",
+                                "message": "Action sensible non executee depuis le chat. "
+                                           "Utilisez le circuit /storage/actions authentifie.",
+                            }
+                        else:
+                            try:
+                                result = await mcp.call_tool(
+                                    name,
+                                    db=audit_db,
+                                    user_id=created_by,
+                                    correlation_id=correlation_id,
+                                    **arguments,
+                                )
+                            except RuntimeError as error:
+                                result = {"status": "error", "message": str(error)}
 
-                result = await storage_mcp_client.call_tool(tool_call.function.name, **args)
+                        detected_tickets.extend(evaluate_tool_result(name, result))
 
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "content": json.dumps(result, ensure_ascii=False),
-                })
+                        messages.append({
+                            "role": "tool", "tool_call_id": call.id,
+                            "content": json.dumps(result, ensure_ascii=False),
+                        })
+        finally:
+            if audit_db is not None:
+                audit_db.close()
 
-        # Boucle épuisée sans réponse finale texte : on force une dernière
-        # réponse sans proposer de nouveaux tools, pour ne jamais renvoyer
-        # une réponse vide à l'utilisateur.
-        final = groq_client.chat_with_tools(messages, tools=None)
-        return final.content or "Je n'ai pas pu obtenir de réponse définitive, réessaie ta question."
+        if final_text is None:
+            final = groq_client.chat_with_tools(messages)
+            final_text = final.content or "Limite de collecte MCP atteinte; reessayez avec une question plus ciblee."
+
+        # --- Creation automatique des tickets detectes -----------------------
+        # SessionLocal est sync -> pas de "async with", pas de "await" sur
+        # les appels incident_service.
+        if detected_tickets and created_by is not None:
+            try:
+                with SessionLocal() as db:
+                    for ticket_data in detected_tickets:
+                        incident_service.create_ticket_from_diagnosis(
+                            db,
+                            created_by=created_by,
+                            correlation_id=correlation_id,
+                            **ticket_data,
+                        )
+            except Exception:
+                logger.exception("Echec de la creation automatique d'un ticket d'incident")
+        elif detected_tickets and created_by is None:
+            logger.warning(
+                "Anomalie(s) detectee(s) mais aucun created_by fourni -- "
+                "ticket(s) non cree(s): %s",
+                [t["title"] for t in detected_tickets],
+            )
+
+        return final_text
 
 
 storage_persona = StoragePersona()
-"""
-À INTÉGRER dans app/personas/storage/agent.py (fichier existant).
-
-analyze_incident() n'est PAS un tool exposé au LLM via tool calling : c'est
-une méthode de StoragePersona appelée directement par la route API, qui
-orchestre elle-même la séquence d'appels MCP (ordre garanti côté code),
-puis délègue uniquement la rédaction du diagnostic à Groq.
-
-Raison de ce choix (cf. décision validée) : pour un incident, on veut être
-sûr que toutes les données nécessaires sont collectées, sans dépendre de la
-décision du LLM d'appeler ou non tel ou tel tool.
-"""
-
-
-
-# NOTE: le logging des appels MCP (table mcp_calls) se fait UNIQUEMENT dans
-# StorageMCPClient.call_tool() (cf. client_call_tool_patch.py), jamais ici,
-# pour éviter un double enregistrement du même appel. analyze_incident se
-# contente de passer correlation_id/user_id à travers chaque appel.
-
-_RCA_SYSTEM_PROMPT = """Tu es un ingénieur SRE senior spécialisé en stockage et sauvegarde.
-On te fournit des données brutes (statut des jobs de backup, logs, capacité disque,
-réplication DR) ainsi que des extraits de runbooks internes.
-
-Rédige une analyse de cause probable (Root Cause Analysis) structurée avec :
-1. Diagnostic : ce qui s'est passé, factuel, basé uniquement sur les données fournies
-2. Cause probable : la cause la plus vraisemblable, justifiée par les données
-3. Impact : conséquence concrète pour l'exploitation
-4. Recommandations : liste d'actions concrètes, numérotées, sans exécuter
-   d'action destructive toi-même — tu proposes, l'ingénieur décide.
-
-Ne jamais inventer de données non présentes dans le contexte fourni.
-Si les données sont insuffisantes pour conclure, dis-le explicitement plutôt
-que de spéculer."""
-
-
-class IncidentAnalysisMixin:
-    """À fusionner dans la classe StoragePersona existante."""
-
-    async def analyze_incident(self, user_message: str, *, user_id, db) -> dict:
-        correlation_id = uuid.uuid4()
-
-        # 1. Séquence d'appels MCP forcée côté code (pas laissée au LLM).
-        # db est passé au client pour que call_tool() logue chaque appel
-        # dans mcp_calls avec le bon correlation_id (cf. client_call_tool_patch.py)
-        job_status = await self.storage_mcp_client.call_tool(
-            "get_backup_job_status", db=db, user_id=user_id, correlation_id=correlation_id,
-        )
-
-        # Cible les logs sur le job en échec le plus récent, s'il y en a un
-        failed_jobs = [j for j in job_status.get("jobs", []) if j.get("status") == "failed"]
-        logs = {}
-        if failed_jobs:
-            logs = await self.storage_mcp_client.call_tool(
-                "get_backup_logs", job_id=failed_jobs[0]["job_id"],
-                db=db, user_id=user_id, correlation_id=correlation_id,
-            )
-
-        capacity = await self.storage_mcp_client.call_tool(
-            "get_capacity", db=db, user_id=user_id, correlation_id=correlation_id,
-        )
-        replication = await self.storage_mcp_client.call_tool(
-            "get_replication_status", db=db, user_id=user_id, correlation_id=correlation_id,
-        )
-
-        # Vue agrégée pour le calcul de sévérité (règles déterministes)
-        health = get_storage_health()
-        severity = estimate_severity(health)
-
-        raw_data = {
-            "job_status": job_status,
-            "logs": logs,
-            "capacity": capacity,
-            "replication": replication,
-        }
-
-        # 2. Contexte RAG (runbooks)
-        rag_context = await self.retrieve_rag_context(user_message)
-
-        # 3. Groq rédige diagnostic/RCA/recommandations à partir des données réelles
-        prompt = (
-            f"Question de l'ingénieur : {user_message}\n\n"
-            f"Données MCP collectées :\n{raw_data}\n\n"
-            f"Extraits de runbooks pertinents :\n{rag_context}\n\n"
-            f"Sévérité déjà calculée par le système : {severity.value}"
-        )
-        analysis_text = await self.groq_client.chat(prompt, system_prompt=_RCA_SYSTEM_PROMPT)
-
-        return {
-            "correlation_id": correlation_id,
-            "severity": severity,
-            "raw_mcp_data": raw_data,
-            "analysis_text": analysis_text,
-            # ticket suggéré si sévérité haute — mais PAS créé automatiquement
-            "ticket_suggested": severity in (IncidentSeverity.CRITICAL, IncidentSeverity.HIGH),
-        }

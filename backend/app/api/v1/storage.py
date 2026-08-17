@@ -21,5 +21,8 @@ async def chat(
     payload: ChatRequest,
     current_user: User = Depends(require_role("storage_engineer", "administrator")),
 ):
-    answer = await storage_persona.handle_message(payload.message)
+    # AJOUTÉ : created_by=current_user.id -- permet à agent.py de créer
+    # automatiquement un IncidentTicket (attribué à cet utilisateur) si une
+    # anomalie HIGH/CRITICAL est détectée pendant la conversation.
+    answer = await storage_persona.handle_message(payload.message, created_by=current_user.id)
     return ChatResponse(response=answer)
