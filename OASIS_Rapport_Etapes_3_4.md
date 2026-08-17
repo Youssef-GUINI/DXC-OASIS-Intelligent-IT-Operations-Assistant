@@ -320,7 +320,7 @@ documentation fournie, pas uniquement sur sa connaissance générale.
 
 ## Fichiers backend créés depuis le dernier rapport
 
-```
+```linux@oasis.com
 backend/app/
 ├── llm/
 │   └── groq_client.py
@@ -347,7 +347,7 @@ backend/app/
 
 | Email | Mot de passe | Rôle |
 |---|---|---|
-| `linux@oasis.com` | `linux123` | linux_engineer |
+| `` | `linux123` | linux_engineer |
 | `storage@oasis.com` | `storage123` | storage_engineer |
 | `admin@oasis.com` | `admin123` | administrator |
 

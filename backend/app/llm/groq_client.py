@@ -8,31 +8,27 @@ class GroqClient:
         self.client = Groq(api_key=settings.groq_api_key)
 
     def chat(self, prompt: str, system_prompt: str | None = None) -> str:
-
         messages = []
-
         if system_prompt:
-            messages.append(
-                {
-                    "role": "system",
-                    "content": system_prompt,
-                }
-            )
-
-        messages.append(
-            {
-                "role": "user",
-                "content": prompt,
-            }
-        )
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
 
         response = self.client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model="openai/gpt-oss-120b",
             messages=messages,
-            temperature=0.3,
+            temperature=0,
         )
+        return response.choices[0].message.content or ""
 
-        return response.choices[0].message.content
+    def chat_with_tools(self, messages: list, tools: list, tool_choice: str = "auto"):
+        response = self.client.chat.completions.create(
+            model="openai/gpt-oss-120b",
+            messages=messages,
+            tools=tools,
+            tool_choice=tool_choice,
+            temperature=0,
+        )
+        return response.choices[0].message
 
 
 groq_client = GroqClient()
