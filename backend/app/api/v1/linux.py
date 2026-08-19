@@ -34,7 +34,7 @@ def chat(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    answer = linux_persona.handle_message(payload.message)
+    answer = linux_persona.handle_message(payload.message, db=db)
 
     # IMPORTANT :
     # Une conversation normale ne doit PAS être enregistrée

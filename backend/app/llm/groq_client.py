@@ -14,19 +14,21 @@ class GroqClient:
         messages.append({"role": "user", "content": prompt})
 
         response = self.client.chat.completions.create(
-            model="openai/gpt-oss-120b",
+            model=settings.groq_model,
             messages=messages,
             temperature=0,
+            max_completion_tokens=settings.groq_max_tokens,
         )
         return response.choices[0].message.content or ""
 
     def chat_with_tools(self, messages: list, tools: list, tool_choice: str = "auto"):
         response = self.client.chat.completions.create(
-            model="openai/gpt-oss-120b",
+            model=settings.groq_tool_model,
             messages=messages,
             tools=tools,
             tool_choice=tool_choice,
             temperature=0,
+            max_completion_tokens=settings.groq_max_tokens,
         )
         return response.choices[0].message
 

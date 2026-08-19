@@ -50,6 +50,9 @@ class Settings(BaseSettings):
     # LLM
     # ==========================================
     groq_api_key: str
+    groq_model: str = "openai/gpt-oss-20b"
+    groq_tool_model: str = "openai/gpt-oss-20b"
+    groq_max_tokens: int = 700
     anthropic_api_key: str = ""
 
     model_config = SettingsConfigDict(

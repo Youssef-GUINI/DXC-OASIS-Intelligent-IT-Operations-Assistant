@@ -223,3 +223,6 @@ GET   /api/v1/linux/incidents?status_filter=open        -> incidents actifs
 GET   /api/v1/linux/incidents?status_filter=resolved    -> incidents résolus
 PATCH /api/v1/linux/incidents/{incident_id}/resolve     -> résoudre manuellement
 ```
+git add .
+git commit -m "Description de mes modifications"
+git push -u origin youssef
