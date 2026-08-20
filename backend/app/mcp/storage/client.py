@@ -54,7 +54,10 @@ class StorageMCPClient:
 
     def _require_session(self) -> ClientSession:
         if self._session is None:
-            raise RuntimeError("Storage MCP indisponible : verifier le lifespan FastAPI.")
+            raise RuntimeError(
+                "Storage MCP indisponible : le client n'a pas ete demarre. "
+                "Utiliser `async with StorageMCPClient() as mcp:` ou appeler start()."
+            )
         return self._session
 
     async def list_tools_for_llm(self) -> list[dict[str, Any]]:
@@ -114,4 +117,7 @@ class StorageMCPClient:
         return result or {}
 
 
-storage_mcp_client = StorageMCPClient()
+# Pas d'instance module-level ici : une instance créée à l'import n'est jamais
+# démarrée, et un client non démarré échoue à chaque appel d'outil. Chaque
+# appelant ouvre le sien pour la durée de son travail --
+# cf. app/personas/storage/agent.py et app/api/v1/actions.py.

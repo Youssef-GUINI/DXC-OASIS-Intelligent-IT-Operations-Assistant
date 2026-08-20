@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
-from app.mcp.storage.client import storage_mcp_client  # instance existante (lifespan)
+from app.mcp.storage.client import StorageMCPClient
 from app.models.action_request import ActionRequest, ActionRequestStatus
 from app.schemas.incident import ActionRequestCreate, ActionRequestOut, ActionRequestRejection
 from app.services import incident_service
@@ -86,13 +86,40 @@ async def confirm_action(
     endroit du système qui déclenche confirm=True vers un tool MCP destructif.
     Reste `async def` + `await` : confirm_and_execute_action fait un vrai
     appel MCP asynchrone (stdio), même si ses accès DB internes sont sync.
+
+    CORRECTIF : cette route utilisait une instance module-level de
+    StorageMCPClient dont personne n'appelait jamais start() -- ni le lifespan
+    de main.py, ni cette route. call_tool() levait donc systématiquement
+    "Storage MCP indisponible", l'action retombait en FAILED et l'API répondait
+    quand même 200 : le seul chemin autorisé pour exécuter une action
+    destructive ne fonctionnait pas.
+
+    Le client est maintenant démarré pour la durée de l'appel puis fermé,
+    exactement comme le fait le persona Storage (app/personas/storage/agent.py).
+    Une confirmation est un clic humain, donc rare : le coût du démarrage du
+    sous-processus est négligeable, et on évite le sous-processus partagé qui
+    reste mort jusqu'au prochain redémarrage du backend s'il tombe.
     """
+    mcp = StorageMCPClient()
+    try:
+        await mcp.start()
+    except Exception as error:  # noqa: BLE001 -- sous-processus MCP non démarrable
+        # Rien n'a encore été modifié : l'action reste PENDING et reste
+        # rejouable. On le dit explicitement au frontend plutôt que de la
+        # marquer FAILED derrière un 200.
+        raise HTTPException(
+            status_code=503,
+            detail=f"Serveur MCP Storage indisponible, action non exécutée : {error}",
+        )
+
     try:
         return await incident_service.confirm_and_execute_action(
-            db, action_id=action_id, user_id=current_user.id, mcp_client=storage_mcp_client,
+            db, action_id=action_id, user_id=current_user.id, mcp_client=mcp,
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    finally:
+        await mcp.stop()
 
 
 @router.post("/{action_id}/reject", response_model=ActionRequestOut)
