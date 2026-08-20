@@ -10,7 +10,8 @@ l'interface l'affiche honnêtement au lieu d'inventer des jobs.
 
 Un timer est reconnu comme sauvegarde si son nom contient l'un des motifs de
 `_BACKUP_NAME_PATTERNS`. Nommer un timer `backup-*.timer` suffit donc à le
-faire apparaître ici.
+faire apparaître ici — à condition qu'il vienne de l'administrateur et non
+d'un paquet de la distribution (voir `_is_storage_backup`).
 """
 
 from __future__ import annotations
@@ -21,6 +22,16 @@ from datetime import datetime, timezone
 from app.mcp.storage.ssh import StorageVMError, quote, run, run_many
 
 _BACKUP_NAME_PATTERNS = ("backup", "sauvegarde", "restic", "borg", "borgmatic", "rsnapshot", "duplicity")
+
+# Motifs qui désignent un vrai outil de sauvegarde, par opposition aux motifs
+# génériques ci-dessus. Sert à trancher pour les units fournies par la
+# distribution : `dpkg-db-backup.timer` (sauvegarde de la base dpkg d'Ubuntu)
+# contient "backup" sans être un job de sauvegarde de données.
+_BACKUP_TOOL_PATTERNS = ("restic", "borg", "borgmatic", "rsnapshot", "duplicity", "bacula", "amanda", "veeam")
+
+# Répertoires des units livrées par les paquets. Ce que l'administrateur a
+# écrit lui-même vit dans /etc/systemd/system ou /run/systemd/system.
+_VENDOR_UNIT_DIRECTORIES = ("/usr/lib/systemd/", "/lib/systemd/")
 
 # `systemctl list-timers` : NEXT LEFT LAST PASSED UNIT ACTIVATES
 _LAST_COLUMN = re.compile(r"^(?P<rest>.*?)\s+(?P<unit>\S+\.timer)\s+(?P<service>\S+)\s*$")
@@ -45,6 +56,24 @@ def _service_for(timer_unit: str) -> str:
     return timer_unit.rsplit(".", 1)[0] + ".service"
 
 
+def _is_storage_backup(timer_unit: str, properties: dict[str, str]) -> bool:
+    """
+    Écarte les timers système que le filtre par nom attrape au passage.
+
+    Une unit écrite par l'administrateur est prise telle quelle : la nommer
+    `backup-*` suffit à la déclarer comme job. Une unit livrée par un paquet
+    n'est retenue que si elle nomme un outil de sauvegarde réel — sinon
+    `dpkg-db-backup.timer`, qui sauvegarde la base de paquets d'Ubuntu,
+    apparaîtrait comme un job de sauvegarde de données.
+    """
+    fragment_path = properties.get("FragmentPath", "")
+    if not fragment_path.startswith(_VENDOR_UNIT_DIRECTORIES):
+        return True
+
+    lowered = timer_unit.lower()
+    return any(pattern in lowered for pattern in _BACKUP_TOOL_PATTERNS)
+
+
 def _parse_show(output: str) -> dict[str, str]:
     """Parse une sortie `systemctl show -p Key=Value`."""
     properties: dict[str, str] = {}
@@ -55,15 +84,32 @@ def _parse_show(output: str) -> dict[str, str]:
     return properties
 
 
-def _hours_since(timestamp: str) -> int | None:
-    """Convertit un horodatage systemd (microsecondes epoch) en heures écoulées."""
+def _moment(timestamp: str) -> datetime | None:
+    """
+    Convertit un horodatage systemd en datetime.
+
+    Les units sont interrogées avec `--timestamp=unix`, qui rend les dates sous
+    la forme `@1787156198` (secondes epoch) au lieu du texte localisé
+    `Wed 2026-08-19 16:16:38 UTC` : c'est la seule forme analysable sans
+    dépendre du fuseau ni de la langue de la VM. Une unit qui n'a jamais tourné
+    renvoie une valeur vide.
+    """
+    if not timestamp:
+        return None
     try:
-        microseconds = int(timestamp)
+        seconds = int(timestamp.lstrip("@"))
     except (TypeError, ValueError):
         return None
-    if microseconds <= 0:
+    if seconds <= 0:
         return None
-    moment = datetime.fromtimestamp(microseconds / 1_000_000, tz=timezone.utc)
+    return datetime.fromtimestamp(seconds, tz=timezone.utc)
+
+
+def _hours_since(timestamp: str) -> int | None:
+    """Heures écoulées depuis un horodatage systemd."""
+    moment = _moment(timestamp)
+    if moment is None:
+        return None
     return max(int((datetime.now(timezone.utc) - moment).total_seconds() // 3600), 0)
 
 
@@ -72,35 +118,43 @@ def _job_from_properties(timer_unit: str, properties: dict[str, str]) -> dict:
     active_state = properties.get("ActiveState", "")
     sub_state = properties.get("SubState", "")
 
+    # systemd renvoie `Result=success` sur une unit qui n'a jamais démarré :
+    # seul l'horodatage de démarrage distingue "jamais lancé" de "a réussi".
+    # Sans ce test, un job planifié mais jamais exécuté s'afficherait comme
+    # une sauvegarde réussie.
+    started_at = _moment(properties.get("ExecMainStartTimestamp", ""))
+    has_run = started_at is not None
+
     if active_state == "activating" or sub_state == "running":
         status = "running"
+    elif not has_run:
+        status = "scheduled"
     elif result == "success":
         status = "success"
-    elif not result or result == "n/a":
-        # Le service n'a encore jamais tourné : le timer est planifié, c'est tout.
-        status = "scheduled"
     else:
         status = "failed"
 
-    hours_since_run = _hours_since(properties.get("ExecMainStartTimestampUSec", ""))
+    hours_since_run = _hours_since(properties.get("ExecMainStartTimestamp", ""))
     # systemd n'expose pas la date du dernier succès distincte du dernier run :
     # elle n'est connue que si ce dernier run a réussi. 0 signifie "inconnu",
     # ce que les seuils de health.py traitent comme non alarmant.
     hours_since_success = hours_since_run if status == "success" and hours_since_run else 0
 
+    finished_at = _moment(properties.get("ExecMainExitTimestamp", ""))
+
     return {
         "job_id": timer_unit,
         "target": properties.get("Description") or _service_for(timer_unit),
         "status": status,
-        "last_run": properties.get("ExecMainExitTimestamp") or None,
+        "last_run": finished_at.isoformat() if finished_at else None,
         "hours_since_last_success": hours_since_success,
         "error_code": result if status == "failed" else None,
     }
 
 
 _SHOW_PROPERTIES = (
-    "Description,ActiveState,SubState,Result,"
-    "ExecMainStartTimestampUSec,ExecMainExitTimestamp"
+    "Description,ActiveState,SubState,Result,FragmentPath,"
+    "ExecMainStartTimestamp,ExecMainExitTimestamp"
 )
 
 
@@ -119,7 +173,10 @@ def list_backups(target: str | None = None) -> dict:
             return {"jobs": [], "configured": False}
 
         commands = {
-            unit: f"systemctl show {quote(_service_for(unit))} -p {_SHOW_PROPERTIES}"
+            unit: (
+                f"systemctl show --timestamp=unix {quote(_service_for(unit))} "
+                f"-p {_SHOW_PROPERTIES}"
+            )
             for unit in timer_units
         }
         raw = run_many(commands)
@@ -128,13 +185,20 @@ def list_backups(target: str | None = None) -> dict:
 
     jobs = []
     for unit, output in raw.items():
-        job = _job_from_properties(unit, _parse_show(output))
-        if target and target not in (job["job_id"], job["target"]):
+        properties = _parse_show(output)
+        if not _is_storage_backup(unit, properties):
             continue
-        jobs.append(job)
+        jobs.append(_job_from_properties(unit, properties))
 
-    if target and not jobs:
-        return {"error": f"No backup job named '{target}' on the VM", "jobs": []}
+    # Tous les timers retenus par le nom étaient des units système : du point
+    # de vue du stockage, aucun job n'est configuré.
+    if not jobs:
+        return {"jobs": [], "configured": False}
+
+    if target:
+        jobs = [job for job in jobs if target in (job["job_id"], job["target"])]
+        if not jobs:
+            return {"error": f"No backup job named '{target}' on the VM", "jobs": []}
 
     return {"jobs": jobs, "configured": True}
 
