@@ -1,0 +1,4 @@
+# Les scripts du laboratoire sont executes sous Linux : sans cette regle,
+# core.autocrlf les reecrit en CRLF au checkout et le shebang devient
+# inutilisable ("bad interpreter: /usr/bin/env bash^M").
+*.sh text eol=lf
