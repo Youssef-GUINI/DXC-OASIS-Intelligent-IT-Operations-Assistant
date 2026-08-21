@@ -2,7 +2,7 @@
 Nettoie le bruit résiduel qui survit parfois à la conversion HTML→Markdown :
 icônes, widgets d'export PDF, fils d'Ariane, liens communautaires/forum,
 boutons de feedback... Règles génériques (pas propres à un seul site) pour
-rester utile sur toutes les sources, Linux comme Storage.
+rester utile sur toutes les sources de documentation.
 """
 import re
 

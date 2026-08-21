@@ -38,6 +38,10 @@ export default {
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],
+        // Réservée aux grands titres d'accroche. Georgia en repli : c'est la
+        // seule serif présente d'office sur Windows comme sur macOS, donc le
+        // titre garde son registre éditorial même si Google Fonts ne répond pas.
+        display: ['Instrument Serif', 'Georgia', 'Times New Roman', 'serif'],
       },
       borderRadius: {
         card: '16px',

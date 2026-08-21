@@ -12,6 +12,7 @@ le frontend n'ait aucune règle métier à dupliquer.
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -29,13 +30,20 @@ CAPACITY_CRITICAL_PERCENT = 90
 
 _OPEN_STATUSES = (IncidentStatus.OPEN, IncidentStatus.IN_PROGRESS)
 
-# get_storage_health() ouvre une connexion SSH vers la VM Storage. Un seul
-# affichage du dashboard déclenche plusieurs lectures (overview + insights, et
-# le layout interroge lui aussi overview) : sans ce cache très court, chacune
-# rouvrirait sa propre session SSH.
-_HEALTH_CACHE_SECONDS = 15
-_health_cache: tuple[float, dict] | None = None
+# get_storage_health() ouvre deux connexions SSH vers la VM Storage : la
+# réponse met plusieurs secondes, et le dashboard la demandait à chaque
+# affichage -- c'est ce qui rendait le changement de page si lent.
+#
+# On sert donc toujours le dernier relevé connu, et on en redemande un en
+# arrière-plan dès qu'il a dépassé cet âge. La page s'affiche immédiatement
+# avec une donnée d'au plus une minute, au lieu d'attendre la VM ; seul le
+# tout premier appel, quand rien n'a encore été relevé, doit patienter.
+_HEALTH_FRESH_SECONDS = 60
+_health_cache: tuple[float, datetime, dict] | None = None
 _health_lock = threading.Lock()
+_refresh_lock = threading.Lock()
+
+logger = logging.getLogger(__name__)
 
 
 # --------------------------------------------------------------------------
@@ -197,20 +205,66 @@ def _headline(status: str, incidents: dict, backups: dict, capacity: dict) -> st
     return "Your storage environment is healthy"
 
 
-def _cached_storage_health() -> dict:
+def refresh_health_snapshot() -> tuple[datetime, dict]:
+    """
+    Interroge la VM et remplace le relevé en cache.
+
+    Le verrou sérialise les rafraîchissements : sans lui, dix onglets ouverts
+    en même temps sur un cache vide déclencheraient dix sessions SSH pour la
+    même donnée. Celui qui obtient le verrou après un autre trouve le relevé
+    déjà frais et repart sans rien demander à la VM.
+    """
     global _health_cache
 
-    with _health_lock:
-        if _health_cache is not None and time.monotonic() - _health_cache[0] < _HEALTH_CACHE_SECONDS:
-            return _health_cache[1]
+    with _refresh_lock:
+        snapshot = _health_cache
+        if snapshot is not None and time.monotonic() - snapshot[0] < _HEALTH_FRESH_SECONDS:
+            return snapshot[1], snapshot[2]
 
         health = get_storage_health()
-        _health_cache = (time.monotonic(), health)
-        return health
+        checked_at = datetime.now(timezone.utc)
+        with _health_lock:
+            _health_cache = (time.monotonic(), checked_at, health)
+        return checked_at, health
 
 
-def get_overview(db: Session) -> dict:
-    health = _cached_storage_health()
+def _storage_health(force: bool = False) -> tuple[datetime, dict]:
+    """Le dernier relevé connu ; la VM n'est interrogée que si besoin."""
+    if force:
+        _invalidate_health_snapshot()
+        return refresh_health_snapshot()
+
+    with _health_lock:
+        snapshot = _health_cache
+
+    if snapshot is None:
+        return refresh_health_snapshot()
+
+    if time.monotonic() - snapshot[0] >= _HEALTH_FRESH_SECONDS and not _refresh_lock.locked():
+        # Périmé : on rend quand même la main tout de suite, le relevé suivant
+        # servira l'affichage d'après.
+        threading.Thread(
+            target=_refresh_in_background, name="storage-health-refresh", daemon=True
+        ).start()
+
+    return snapshot[1], snapshot[2]
+
+
+def _refresh_in_background() -> None:
+    try:
+        refresh_health_snapshot()
+    except Exception:  # noqa: BLE001 -- la VM peut être injoignable
+        logger.exception("Echec du rafraichissement du releve de sante Storage")
+
+
+def _invalidate_health_snapshot() -> None:
+    global _health_cache
+    with _health_lock:
+        _health_cache = None
+
+
+def get_overview(db: Session, force_refresh: bool = False) -> dict:
+    checked_at, health = _storage_health(force=force_refresh)
     capacity = _build_capacity(health.get("capacity", {}))
     backups = _build_backups(health.get("backups", {}))
     incidents = _build_incidents(db)
@@ -229,6 +283,9 @@ def get_overview(db: Session) -> dict:
         "incidents": incidents,
         "alerts": alerts,
         "generated_at": datetime.now(timezone.utc),
+        # Date du relevé sur la VM, distincte de celle de la réponse : elle dit
+        # à l'interface quel âge ont réellement capacité et sauvegardes.
+        "checked_at": checked_at,
     }
 
 

@@ -7,6 +7,7 @@ from app.models.action_request import ActionRequest
 from app.models.mcp_call import MCPCall
 from app.models.knowledge_document import KnowledgeDocument
 from app.models.metric import DiskMetric
+from app.models.chat_message import ChatConversation, ChatMessage
 
 __all__ = [
     "Role",
@@ -19,4 +20,6 @@ __all__ = [
     "MCPCall",
     "KnowledgeDocument",
     "DiskMetric",
+    "ChatConversation",
+    "ChatMessage",
 ]

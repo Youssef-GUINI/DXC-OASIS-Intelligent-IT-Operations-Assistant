@@ -48,6 +48,25 @@ class Settings(BaseSettings):
     # ==========================================
     upload_dir: str = "uploads"
 
+    # ==========================================
+    # RAG / EMBEDDINGS
+    # ==========================================
+    # Modele multilingue : la KB Storage est en anglais, les questions des
+    # ingenieurs en francais. Changer ce nom invalide les collections Chroma
+    # deja construites -- il faut relancer `python -m app.rag.reindex`.
+    #
+    # Alternatives selon le budget CPU :
+    #   intfloat/multilingual-e5-small  ~470 Mo, 384 dim  (defaut, rapide)
+    #   intfloat/multilingual-e5-base   ~1.1 Go, 768 dim  (plus precis)
+    #   BAAI/bge-m3                     ~2.2 Go, 1024 dim (meilleur, lent sur CPU)
+    embedding_model: str = "intfloat/multilingual-e5-small"
+
+    # Les modeles E5 sont asymetriques et attendent ces prefixes. Pour un
+    # modele qui n'en utilise pas (BAAI/bge-m3, paraphrase-multilingual),
+    # mettre les deux a chaine vide dans le .env.
+    embedding_query_prefix: str = "query: "
+    embedding_passage_prefix: str = "passage: "
+
     model_config = SettingsConfigDict(
         env_file=".env",
         extra="ignore",

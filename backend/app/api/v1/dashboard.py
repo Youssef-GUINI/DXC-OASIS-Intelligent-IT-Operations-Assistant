@@ -28,10 +28,14 @@ _storage_access = require_role("storage_engineer", "administrator")
 
 @router.get("/overview", response_model=OverviewOut)
 def read_overview(
+    refresh: bool = Query(
+        False,
+        description="Force une nouvelle lecture de la VM au lieu du dernier releve.",
+    ),
     db: Session = Depends(get_db),
     current_user: User = Depends(_storage_access),
 ):
-    return kpi_service.get_overview(db)
+    return kpi_service.get_overview(db, force_refresh=refresh)
 
 
 @router.get("/performance", response_model=PerformanceOut)

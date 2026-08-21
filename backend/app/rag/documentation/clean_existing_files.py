@@ -1,10 +1,9 @@
 """
 Applique le nettoyage à tous les fichiers .md déjà présents dans un
-dossier de knowledge base (storage_kb, linux_kb...), en place.
+dossier de knowledge base (storage_kb...), en place.
 
 Usage :
     python clean_existing_files.py ../storage_kb
-    python clean_existing_files.py ../linux_kb
 """
 import sys
 from pathlib import Path

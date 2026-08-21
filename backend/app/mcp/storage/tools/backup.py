@@ -19,7 +19,7 @@ from __future__ import annotations
 import re
 from datetime import datetime, timezone
 
-from app.mcp.storage.ssh import StorageVMError, quote, run, run_many
+from app.mcp.storage.ssh import StorageVMError, quote, run
 
 _BACKUP_NAME_PATTERNS = ("backup", "sauvegarde", "restic", "borg", "borgmatic", "rsnapshot", "duplicity")
 
@@ -32,6 +32,9 @@ _BACKUP_TOOL_PATTERNS = ("restic", "borg", "borgmatic", "rsnapshot", "duplicity"
 # Répertoires des units livrées par les paquets. Ce que l'administrateur a
 # écrit lui-même vit dans /etc/systemd/system ou /run/systemd/system.
 _VENDOR_UNIT_DIRECTORIES = ("/usr/lib/systemd/", "/lib/systemd/")
+
+# Sépare les blocs de propriétés quand toutes les units sont lues d une traite.
+_UNIT_MARKER = "###OASIS-UNIT="
 
 # `systemctl list-timers` : NEXT LEFT LAST PASSED UNIT ACTIVATES
 _LAST_COLUMN = re.compile(r"^(?P<rest>.*?)\s+(?P<unit>\S+\.timer)\s+(?P<service>\S+)\s*$")
@@ -72,6 +75,33 @@ def _is_storage_backup(timer_unit: str, properties: dict[str, str]) -> bool:
 
     lowered = timer_unit.lower()
     return any(pattern in lowered for pattern in _BACKUP_TOOL_PATTERNS)
+
+
+def _show_units(timer_units: list[str]) -> dict[str, str]:
+    """
+    Lit les propriétés de toutes les units en une seule commande.
+
+    Une exécution par unit coûtait un canal SSH chacune : sur six timers,
+    list_backups mettait près de quatre secondes, et le dashboard se figeait
+    d'autant à chaque navigation. Les blocs sont séparés par un marqueur, ce
+    qui permet de tout obtenir en un seul aller-retour.
+    """
+    parts = [
+        f"echo {quote(_UNIT_MARKER + unit)}; "
+        f"systemctl show --timestamp=unix {quote(_service_for(unit))} -p {_SHOW_PROPERTIES}"
+        for unit in timer_units
+    ]
+    output = run("; ".join(parts), allow_failure=True)
+
+    blocks: dict[str, str] = {}
+    current: str | None = None
+    for line in output.splitlines():
+        if line.startswith(_UNIT_MARKER):
+            current = line[len(_UNIT_MARKER):].strip()
+            blocks[current] = ""
+        elif current is not None:
+            blocks[current] += line + "\n"
+    return blocks
 
 
 def _parse_show(output: str) -> dict[str, str]:
@@ -172,14 +202,7 @@ def list_backups(target: str | None = None) -> dict:
         if not timer_units:
             return {"jobs": [], "configured": False}
 
-        commands = {
-            unit: (
-                f"systemctl show --timestamp=unix {quote(_service_for(unit))} "
-                f"-p {_SHOW_PROPERTIES}"
-            )
-            for unit in timer_units
-        }
-        raw = run_many(commands)
+        raw = _show_units(timer_units)
     except StorageVMError as error:
         return {"error": str(error), "jobs": []}
 

@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { CheckCircle2, ShieldCheck, Sparkles } from 'lucide-react';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { Card } from '@/components/ui/Card';
@@ -38,6 +38,36 @@ export default function IncidentsPage() {
   const [resolving, setResolving] = useState(false);
   const navigate = useNavigate();
   const notify = useToast();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Arrivée depuis la recherche globale : le ticket est rechargé par son id
+  // plutôt que cherché dans la liste, qui peut être filtrée ou tronquée.
+  const requestedIncident = searchParams.get('incident');
+  useEffect(() => {
+    if (!requestedIncident) return;
+    let cancelled = false;
+
+    void api
+      .get<Incident>(`/incidents/${requestedIncident}`)
+      .then((incident) => {
+        if (!cancelled) setSelected(incident);
+      })
+      .catch((caught: unknown) => {
+        if (cancelled) return;
+        notify({
+          tone: 'error',
+          title: "Couldn't open this incident",
+          detail: caught instanceof Error ? caught.message : undefined,
+        });
+      });
+
+    // Le paramètre a joué son rôle : le garder rouvrirait le panneau à chaque
+    // rendu, et le lien resterait dans l'historique du navigateur.
+    setSearchParams({}, { replace: true });
+    return () => {
+      cancelled = true;
+    };
+  }, [requestedIncident, setSearchParams, notify]);
 
   const { data, error, loading, reload } = useResource<Incident[]>(
     () => api.get<Incident[]>(`/incidents${queryFor(filter)}`),

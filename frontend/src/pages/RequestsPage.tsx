@@ -1,4 +1,5 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { ClipboardList, Plus } from 'lucide-react';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { Card } from '@/components/ui/Card';
@@ -38,6 +39,18 @@ const PRIORITIES = ['low', 'medium', 'high', 'critical'];
 export default function RequestsPage() {
   const [filter, setFilter] = useState<Filter>('all');
   const [formOpen, setFormOpen] = useState(false);
+
+  // Arrivée depuis la recherche globale : la demande n'a pas de page à elle,
+  // on la met en évidence dans la liste et on l'amène sous les yeux.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [highlighted, setHighlighted] = useState<string | null>(null);
+  const requestedId = searchParams.get('request');
+  useEffect(() => {
+    if (!requestedId) return;
+    setHighlighted(requestedId);
+    setFilter('all');
+    setSearchParams({}, { replace: true });
+  }, [requestedId, setSearchParams]);
 
   const { data, error, loading, reload } = useResource<StorageRequest[]>(
     () => api.get<StorageRequest[]>(`/storage/actions${filter === 'all' ? '' : `?status=${filter}`}`),
@@ -100,7 +113,18 @@ export default function RequestsPage() {
         {data && data.length > 0 && (
           <ul className="divide-y divide-line">
             {data.map((request) => (
-              <li key={request.id} className="flex items-center gap-4 px-5 py-4">
+              <li
+                key={request.id}
+                ref={
+                  request.id === highlighted
+                    ? (node) => node?.scrollIntoView({ block: 'center' })
+                    : undefined
+                }
+                className={cn(
+                  'flex items-center gap-4 px-5 py-4',
+                  request.id === highlighted && 'bg-brand-50 ring-1 ring-inset ring-brand-200',
+                )}
+              >
                 <StatusDot tone={STATUS_TONE[request.status] ?? 'neutral'} />
 
                 <div className="min-w-0 flex-1">

@@ -30,8 +30,3 @@ storage:
   # - url: "https://exemple.com/ibm-storage-sops.pdf"
   #   format: pdf
   #   output: ibm_storage_sops.md
-
-linux:
-  # À compléter par le binôme au fur et à mesure des besoins,
-  # même principe que pour storage.
-  []

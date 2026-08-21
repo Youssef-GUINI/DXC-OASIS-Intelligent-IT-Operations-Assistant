@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 class AccessRequestCreate(BaseModel):
     """Ce qu'un utilisateur envoie pour demander un accès cross-domain."""
-    target_workspace: str  # "linux" ou "storage"
+    target_workspace: str  # ex. "storage"
     reason: str
 
 

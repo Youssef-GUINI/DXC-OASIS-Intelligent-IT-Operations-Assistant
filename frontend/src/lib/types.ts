@@ -80,6 +80,8 @@ export type Overview = {
   incidents: IncidentCounts;
   alerts: Alert[];
   generated_at: string;
+  /** Date du dernier relevé sur la VM — la réponse peut servir un relevé récent en cache. */
+  checked_at: string;
 };
 
 export type PerformanceRange = '24h' | '7d' | '30d';

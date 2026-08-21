@@ -72,20 +72,20 @@ def check_capacity(volume: dict[str, Any]) -> Optional[dict]:
     mountpoint = volume.get("mountpoint", "?")
     volume_id = volume.get("volume_id", mountpoint)
     return {
-        "title": f"Volume {volume_id} à {percent}% de capacité",
+        "title": f"Volume {volume_id} at {percent}% capacity",
         "description": (
-            f"Le volume {volume_id} ({volume.get('device', '?')}) monté sur "
-            f"{mountpoint} a atteint {percent}% d'utilisation "
-            f"({volume.get('used_gb', '?')}/{volume.get('total_gb', '?')} Go)."
+            f"Volume {volume_id} ({volume.get('device', '?')}) mounted on "
+            f"{mountpoint} has reached {percent}% usage "
+            f"({volume.get('used_gb', '?')}/{volume.get('total_gb', '?')} GB)."
         ),
         "severity": severity,
         "affected_system": volume_id,
-        "impact_summary": f"{percent}% d'utilisation disque sur {volume_id}.",
+        "impact_summary": f"{percent}% disk usage on {volume_id}.",
         "mcp_data": volume,
         "recommendations": [
             {
                 "order": 1,
-                "description": f"Vérifier les snapshots anciens sur {volume_id} pouvant être purgés",
+                "description": f"Review old snapshots on {volume_id} that could be pruned",
                 "action_type": None,
                 "target": volume_id,
                 "requires_confirmation": False,
@@ -102,26 +102,26 @@ def check_backup_status(job: dict[str, Any]) -> Optional[dict]:
     name = job.get("job_id", "?")
     target = job.get("target", name)
     error_code = job.get("error_code")
-    detail = f" (résultat systemd : {error_code})" if error_code else ""
+    detail = f" (systemd result: {error_code})" if error_code else ""
 
     return {
-        "title": f"Échec du job de sauvegarde {name}",
-        "description": f"Le job {name} ciblant {target} a échoué{detail}.",
+        "title": f"Backup job {name} failed",
+        "description": f"Job {name} targeting {target} failed{detail}.",
         "severity": IncidentSeverity.HIGH,
         "affected_system": target,
-        "impact_summary": f"Dernier backup en échec pour {target}.",
+        "impact_summary": f"Last backup failed for {target}.",
         "mcp_data": job,
         "recommendations": [
             {
                 "order": 1,
-                "description": f"Consulter le journal du job avec get_backup_logs sur {name}",
+                "description": f"Read the job journal with get_backup_logs on {name}",
                 "action_type": None,
                 "target": name,
                 "requires_confirmation": False,
             },
             {
                 "order": 2,
-                "description": f"Relancer le job de sauvegarde {name}",
+                "description": f"Re-run backup job {name}",
                 "action_type": "run_backup",
                 "target": name,
                 "requires_confirmation": False,

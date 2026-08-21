@@ -74,11 +74,19 @@ class OverviewOut(BaseModel):
     incidents: IncidentCountsOut
     alerts: list[AlertOut]
     generated_at: datetime
+    # Quand la VM a réellement été interrogée : la réponse peut servir un
+    # relevé de moins d'une minute sans rouvrir de session SSH.
+    checked_at: datetime
 
 
 class PerformancePoint(BaseModel):
     timestamp: datetime
-    iops: int
+    # float et non int : un point est une moyenne d'IOPS sur un intervalle,
+    # elle est fractionnaire dès que l'activité est faible (0.58 IOPS). Typé
+    # int, Pydantic rejetait la réponse entière et le graphique tombait en 500
+    # — mais seulement quand la moyenne n'était pas ronde, ce qui rendait la
+    # panne intermittente. metrics_service arrondit déjà à deux décimales.
+    iops: float
     throughput_mbps: float
     latency_ms: float
 

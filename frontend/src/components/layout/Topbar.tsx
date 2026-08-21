@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Bell, HelpCircle, LogOut, Menu, Search, Settings } from 'lucide-react';
+import { Bell, HelpCircle, LogOut, Menu, Settings } from 'lucide-react';
+import { GlobalSearch } from '@/components/layout/GlobalSearch';
 import { useAuth } from '@/auth/AuthContext';
 import { cn } from '@/lib/cn';
+import type { Tone } from '@/components/ui/Badge';
 
 function useDismissOnOutsideClick(onDismiss: () => void) {
   const ref = useRef<HTMLDivElement>(null);
@@ -16,16 +18,35 @@ function useDismissOnOutsideClick(onDismiss: () => void) {
   return ref;
 }
 
+/** Une ligne du panneau de notifications, déjà résolue vers sa destination. */
+export type Notification = {
+  id: string;
+  title: string;
+  detail?: string | null;
+  tone: Tone;
+  to: string;
+};
+
+const TONE_DOT: Record<Tone, string> = {
+  neutral: 'bg-ink-300',
+  brand: 'bg-brand-500',
+  ok: 'bg-ok-500',
+  warn: 'bg-warn-500',
+  danger: 'bg-danger-500',
+};
+
 export function Topbar({
   onOpenMenu,
-  attentionCount = 0,
+  notifications = [],
 }: {
   onOpenMenu: () => void;
-  attentionCount?: number;
+  notifications?: Notification[];
 }) {
   const { user, signOut } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [bellOpen, setBellOpen] = useState(false);
   const menuRef = useDismissOnOutsideClick(() => setMenuOpen(false));
+  const bellRef = useDismissOnOutsideClick(() => setBellOpen(false));
 
   const initials = (user?.full_name || 'Storage Engineer')
     .split(' ')
@@ -43,28 +64,75 @@ export function Topbar({
         <Menu className="h-5 w-5" />
       </button>
 
-      <div className="relative max-w-md flex-1">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" />
-        <input
-          type="search"
-          placeholder="Search storage resources, incidents, volumes..."
-          className="h-9 w-full rounded-lg border border-line bg-canvas pl-9 pr-3 text-sm text-ink-900 placeholder:text-ink-400 focus:border-brand-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-100"
-        />
-      </div>
+      <GlobalSearch />
 
       <div className="ml-auto flex items-center gap-0.5">
-        <Link
-          to="/storage/incidents"
-          aria-label="Notifications"
-          className="focus-ring relative rounded-lg p-2 text-ink-500 transition-colors hover:bg-slate-100 hover:text-ink-900"
-        >
-          <Bell className="h-[18px] w-[18px]" />
-          {attentionCount > 0 && (
-            <span className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger-500 px-1 text-[10px] font-semibold text-white">
-              {attentionCount > 9 ? '9+' : attentionCount}
-            </span>
+        <div className="relative" ref={bellRef}>
+          <button
+            onClick={() => setBellOpen((open) => !open)}
+            aria-label="Notifications"
+            aria-expanded={bellOpen}
+            className={cn(
+              'focus-ring relative rounded-lg p-2 text-ink-500 transition-colors hover:bg-slate-100 hover:text-ink-900',
+              bellOpen && 'bg-slate-100 text-ink-900',
+            )}
+          >
+            <Bell className="h-[18px] w-[18px]" />
+            {notifications.length > 0 && (
+              <span className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger-500 px-1 text-[10px] font-semibold text-white">
+                {notifications.length > 9 ? '9+' : notifications.length}
+              </span>
+            )}
+          </button>
+
+          {bellOpen && (
+            <div className="absolute right-0 top-full mt-1.5 w-80 overflow-hidden rounded-xl border border-line bg-white shadow-lift animate-fade-up">
+              <div className="border-b border-line px-3 py-2.5">
+                <p className="text-[13px] font-medium text-ink-900">Notifications</p>
+                <p className="text-[11px] text-ink-500">
+                  {notifications.length > 0
+                    ? 'What needs your attention right now.'
+                    : 'Everything is quiet.'}
+                </p>
+              </div>
+
+              {notifications.length === 0 ? (
+                <p className="px-3 py-6 text-center text-[13px] text-ink-500">
+                  Nothing needs your attention.
+                </p>
+              ) : (
+                <ul className="max-h-80 overflow-y-auto">
+                  {notifications.map((notification) => (
+                    <li key={notification.id}>
+                      <Link
+                        to={notification.to}
+                        onClick={() => setBellOpen(false)}
+                        className="flex gap-2.5 border-b border-line px-3 py-2.5 last:border-b-0 hover:bg-slate-50"
+                      >
+                        <span
+                          className={cn(
+                            'mt-1.5 h-2 w-2 shrink-0 rounded-full',
+                            TONE_DOT[notification.tone],
+                          )}
+                        />
+                        <span className="min-w-0">
+                          <span className="block text-[13px] text-ink-900">
+                            {notification.title}
+                          </span>
+                          {notification.detail && (
+                            <span className="block truncate text-[11px] text-ink-500">
+                              {notification.detail}
+                            </span>
+                          )}
+                        </span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           )}
-        </Link>
+        </div>
 
         <button
           aria-label="Help"

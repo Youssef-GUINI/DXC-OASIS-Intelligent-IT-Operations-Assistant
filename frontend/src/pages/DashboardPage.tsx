@@ -1,31 +1,71 @@
-import { Archive, HardDrive, HeartPulse, ShieldAlert } from 'lucide-react';
+import { useEffect, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
+import { Archive, HardDrive, HeartPulse, RotateCw, ShieldAlert } from 'lucide-react';
 import { AttentionBanner } from '@/components/dashboard/AttentionBanner';
 import { BackupHealthCard, CapacityOverview } from '@/components/dashboard/CapacityOverview';
 import { KpiCard, KpiCardSkeleton } from '@/components/dashboard/KpiCard';
 import { OasisInsights } from '@/components/dashboard/OasisInsights';
 import { PerformanceChart } from '@/components/dashboard/PerformanceChart';
 import { RecentActivity } from '@/components/dashboard/RecentActivity';
+import { Button } from '@/components/ui/Button';
 import { ErrorState, Skeleton } from '@/components/ui/States';
 import { api } from '@/lib/api';
-import { formatCapacity, greeting } from '@/lib/format';
+import { formatCapacity, formatRelativeTime, greeting } from '@/lib/format';
 import { useResource } from '@/lib/useResource';
 import type { Overview } from '@/lib/types';
 
 export default function DashboardPage() {
-  const { data, error, loading, reload } = useResource<Overview>(
-    () => api.get<Overview>('/storage/dashboard/overview'),
-    [],
-  );
+  // Le backend sert le dernier relevé de la VM (moins d'une minute), ce qui
+  // rend l'affichage immédiat. Ce drapeau demande une lecture neuve, à la
+  // main : c'est le seul cas où l'on accepte d'attendre la VM.
+  const forceNextRead = useRef(false);
+  const { data, error, loading, reload } = useResource<Overview>(() => {
+    const force = forceNextRead.current;
+    forceNextRead.current = false;
+    return api.get<Overview>(`/storage/dashboard/overview${force ? '?refresh=true' : ''}`);
+  }, []);
+  const { hash } = useLocation();
+
+  function readFromVm() {
+    forceNextRead.current = true;
+    reload();
+  }
+
+  // Une notification renvoie vers la carte concernée (#backup-health,
+  // #capacity). React Router ne gère pas le défilement vers une ancre, et la
+  // carte n'existe pas encore au premier rendu : on attend les données.
+  useEffect(() => {
+    if (!hash || !data) return;
+    document.querySelector(hash)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [hash, data]);
 
   return (
     <div className="mx-auto max-w-[1400px]">
-      <header className="mb-6">
-        <h1 className="text-[22px] font-semibold tracking-tight text-ink-900">
-          {greeting()}, Storage Engineer 👋
-        </h1>
-        <p className="mt-1 text-sm text-ink-500">
-          Here's what's happening across your storage environment today.
-        </p>
+      <header className="mb-6 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-[22px] font-semibold tracking-tight text-ink-900">
+            {greeting()}, Storage Engineer 👋
+          </h1>
+          <p className="mt-1 text-sm text-ink-500">
+            Here's what's happening across your storage environment today.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {data && (
+            <span className="text-[12px] text-ink-400">
+              VM checked {formatRelativeTime(data.checked_at)}
+            </span>
+          )}
+          <Button
+            size="sm"
+            loading={loading}
+            icon={<RotateCw className="h-3.5 w-3.5" />}
+            onClick={readFromVm}
+          >
+            Refresh
+          </Button>
+        </div>
       </header>
 
       {/* Niveau 1 — ce qui réclame l'attention */}
@@ -131,7 +171,7 @@ export default function DashboardPage() {
         <div className="xl:col-span-2">
           <PerformanceChart />
         </div>
-        <div className="space-y-4">
+        <div className="space-y-4" id="capacity">
           {loading && <Skeleton className="h-[300px] rounded-card" />}
           {data && <CapacityOverview capacity={data.capacity} />}
         </div>
@@ -139,7 +179,11 @@ export default function DashboardPage() {
 
       <div className="mt-4 grid gap-4 xl:grid-cols-3">
         {loading && <Skeleton className="h-[200px] rounded-card" />}
-        {data && <BackupHealthCard backups={data.backups} />}
+        {data && (
+          <div id="backup-health" className="scroll-mt-24">
+            <BackupHealthCard backups={data.backups} />
+          </div>
+        )}
 
         {/* Niveau 3 — ce qui s'est passé récemment */}
         <div className="xl:col-span-2">

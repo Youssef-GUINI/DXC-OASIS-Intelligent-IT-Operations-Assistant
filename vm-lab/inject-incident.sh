@@ -76,7 +76,7 @@ fail_backup() {
     # enregistre ExecMainStatus != 0, que list_backups remonte en "failed".
     cat > /etc/systemd/system/backup-app-critical.service <<'UNIT'
 [Unit]
-Description=Sauvegarde de l'application critique (incident de demonstration)
+Description=Critical application backup
 
 [Service]
 Type=oneshot
@@ -87,7 +87,7 @@ UNIT
 
     cat > /etc/systemd/system/backup-app-critical.timer <<'UNIT'
 [Unit]
-Description=Sauvegarde de l'application critique (planification)
+Description=Critical application backup (schedule)
 
 [Timer]
 OnCalendar=*-*-* 01:00:00

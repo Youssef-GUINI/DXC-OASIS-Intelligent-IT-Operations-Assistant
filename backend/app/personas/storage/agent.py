@@ -26,7 +26,19 @@ class StoragePersona:
     name = "storage_persona"
     rag_collection = "storage_kb"
 
-    async def handle_message(self, user_message: str, created_by: int | None = None) -> str:
+    async def handle_message(
+        self,
+        user_message: str,
+        created_by: int | None = None,
+        history: list[dict[str, str]] | None = None,
+    ) -> str:
+        """
+        Repond a un message, en tenant compte des tours precedents.
+
+        `history` contient les derniers messages du fil (role user/assistant),
+        deja tronque par chat_service : sans lui, chaque question repartirait
+        de zero et "et pour /var ?" n'aurait aucun sens pour le modele.
+        """
         context = retriever.retrieve(
             collection_name=self.rag_collection, question=user_message, n_results=3
         )
@@ -38,8 +50,14 @@ de restauration et de failover ne sont jamais executables dans le chat : une
 action sensible doit etre proposee au frontend puis confirmee par son endpoint
 authentifie dedie. Documentation RAG :
 {context or 'Aucune documentation interne pertinente trouvee.'}"""},
-            {"role": "user", "content": user_message},
         ]
+        # Seuls les tours texte sont rejoues : les appels d'outils d'une
+        # conversation precedente ne sont pas rejouables (leurs resultats ne
+        # sont plus a jour), le modele les redemande s'il en a besoin.
+        for previous in history or []:
+            if previous.get("role") in ("user", "assistant") and previous.get("content"):
+                messages.append({"role": previous["role"], "content": previous["content"]})
+        messages.append({"role": "user", "content": user_message})
 
         detected_tickets: list[dict] = []
         final_text: str | None = None

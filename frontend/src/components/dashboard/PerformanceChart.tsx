@@ -13,7 +13,7 @@ import { Card, CardHeader } from '@/components/ui/Card';
 import { EmptyState, ErrorState, Skeleton } from '@/components/ui/States';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/cn';
-import { formatNumber } from '@/lib/format';
+import { formatMetric } from '@/lib/format';
 import { useResource } from '@/lib/useResource';
 import type { Performance, PerformanceRange } from '@/lib/types';
 
@@ -90,7 +90,7 @@ export function PerformanceChart() {
         title="Storage Performance"
         subtitle={
           data
-            ? `Averaging ${formatNumber(average ?? 0)}${active.unit || ' IOPS'} over the last ${
+            ? `Averaging ${formatMetric(average ?? 0)}${active.unit || ' IOPS'} over the last ${
                 RANGES.find((option) => option.key === range)?.label
               }`
             : 'Reading performance counters…'
@@ -144,7 +144,7 @@ export function PerformanceChart() {
                 axisLine={false}
                 tickLine={false}
                 width={48}
-                tickFormatter={(value: number) => formatNumber(value)}
+                tickFormatter={(value: number) => formatMetric(value)}
               />
               <Tooltip
                 cursor={{ stroke: '#cbd5e1', strokeDasharray: '3 3' }}
@@ -162,7 +162,7 @@ export function PerformanceChart() {
                     minute: '2-digit',
                   })
                 }
-                formatter={(value: number) => [`${formatNumber(value)}${active.unit}`, active.label]}
+                formatter={(value: number) => [`${formatMetric(value)}${active.unit}`, active.label]}
               />
               <Area
                 type="monotone"

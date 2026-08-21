@@ -2,7 +2,7 @@
 app/models/mcp_call.py
 
 Modèle d'audit pour tracer chaque appel d'outil MCP effectué par un persona
-(Storage, Linux, ...), quel que soit le résultat.
+(Storage, ...), quel que soit le résultat.
 
 Objectif : pouvoir prouver, a posteriori, qu'une réponse de l'agent s'appuie
 bien sur un résultat MCP réel (et non inventé), et tracer qui a demandé quoi.
@@ -43,7 +43,7 @@ class MCPCall(Base):
     # incompatibilité que celle déjà corrigée sur IncidentTicket.created_by.
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
 
-    # Domaine du persona à l'origine de l'appel : "storage", "linux", ...
+    # Domaine du persona à l'origine de l'appel : "storage", ...
     persona = Column(String, nullable=False, index=True)
 
     # Nom exact du tool MCP appelé (ex: "get_capacity", "restore_from_backup")

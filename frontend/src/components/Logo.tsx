@@ -2,9 +2,11 @@ import { useState } from 'react';
 import { cn } from '@/lib/cn';
 
 /**
- * Affiche le logo fourni (public/dxc-logo.png). Tant que le fichier n'a pas
- * été déposé, on retombe sur une marque abstraite neutre plutôt que de
- * casser la mise en page ou d'afficher une image brisée.
+ * Marque carrée, dessinée aux mêmes lettres que le logo.
+ *
+ * Elle sert de repli si public/dxc-logo.png manque, et de variante assumée
+ * partout où la largeur est comptée : le logo est un logotype de rapport 6:1,
+ * illisible dans une pastille d'avatar ou dans un rail replié de 72 px.
  */
 function FallbackMark({ size }: { size: number }) {
   return (
@@ -26,28 +28,52 @@ function FallbackMark({ size }: { size: number }) {
 }
 
 type LogoProps = {
-  /** Taille du symbole en pixels. */
+  /**
+   * Hauteur du symbole en pixels ; la largeur suit ses proportions.
+   *
+   * Le fichier est recadré sur la marque elle-même (478 × 80, soit un rapport
+   * de 6:1) : la hauteur demandée est donc celle du logo visible, sans marge
+   * morte autour.
+   */
   size?: number;
   /** Affiche « DXC OASIS » et un sous-titre à côté du symbole. */
   withWordmark?: boolean;
   subtitle?: string;
+  /**
+   * `wordmark` (défaut) affiche le logo DXC, large ; `mark` la version carrée,
+   * pour les emplacements étroits où le logotype ne tiendrait pas.
+   */
+  variant?: 'wordmark' | 'mark';
   className?: string;
 };
 
-export function Logo({ size = 32, withWordmark = false, subtitle, className }: LogoProps) {
+export function Logo({
+  size = 32,
+  withWordmark = false,
+  subtitle,
+  variant = 'wordmark',
+  className,
+}: LogoProps) {
   const [imageFailed, setImageFailed] = useState(false);
 
   return (
     <span className={cn('flex items-center gap-2.5', className)}>
-      {imageFailed ? (
+      {variant === 'mark' || imageFailed ? (
         <FallbackMark size={size} />
       ) : (
         <img
           src="/dxc-logo.png"
           alt=""
           onError={() => setImageFailed(true)}
-          className="shrink-0 object-contain"
-          style={{ width: size, height: size }}
+          // Le fichier est détouré : pas de cadre blanc à masquer, la marque
+          // se pose telle quelle sur le fond de la page.
+          //
+          // `min-w-0 max-w-full` plutôt que `shrink-0` : un logotype de 6:1
+          // devient vite plus large que son emplacement, mieux vaut qu'il se
+          // réduise (object-contain conserve les proportions) que de pousser
+          // le texte hors du cadre.
+          className="min-w-0 max-w-full object-contain"
+          style={{ height: size, width: 'auto' }}
         />
       )}
 

@@ -75,4 +75,40 @@ export const api = {
     form.append('file', file);
     return request<T>(path, { method: 'POST', body: form });
   },
+  /**
+   * Télécharge un fichier servi par une route authentifiée.
+   *
+   * Un simple <a href> ne convient pas : le navigateur n'y joint pas l'en-tête
+   * Authorization, et la route répondrait 401. On récupère donc la réponse en
+   * blob, puis on déclenche le téléchargement depuis une URL objet.
+   */
+  download: async (path: string, fallbackName: string): Promise<void> => {
+    const token = tokenStore.get();
+    const headers = new Headers();
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+
+    const response = await fetch(`${BASE_URL}${path}`, { headers });
+    if (response.status === 401) {
+      onUnauthorized();
+      throw new ApiError('Your session has expired. Please sign in again.', 401);
+    }
+    if (!response.ok) {
+      throw new ApiError(await readError(response), response.status);
+    }
+
+    // Le backend expose Content-Disposition ; on retombe sur le nom fourni
+    // si un proxy le filtre.
+    const disposition = response.headers.get('Content-Disposition') ?? '';
+    const match = disposition.match(/filename="?([^"]+)"?/);
+    const filename = match?.[1] ?? fallbackName;
+
+    const url = URL.createObjectURL(await response.blob());
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  },
 };

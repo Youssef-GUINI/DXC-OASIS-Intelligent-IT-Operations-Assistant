@@ -20,7 +20,7 @@ import yaml
 from converters import html_to_md, pdf_to_md
 
 # Dossier où vivent les bases de connaissances par persona, un cran
-# au-dessus de documentation/ (donc rag/linux_kb/, rag/storage_kb/...).
+# au-dessus de documentation/ (donc rag/storage_kb/...).
 RAG_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_PATH = Path(__file__).resolve().parent / "config.yaml"
 

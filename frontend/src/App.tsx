@@ -9,12 +9,13 @@ import ChatPage from '@/pages/ChatPage';
 import IncidentsPage from '@/pages/IncidentsPage';
 import RequestsPage from '@/pages/RequestsPage';
 import DataHubPage from '@/pages/DataHubPage';
+import ReportsPage from '@/pages/ReportsPage';
 import SettingsPage from '@/pages/SettingsPage';
 
 function SplashScreen() {
   return (
     <div className="flex min-h-screen items-center justify-center">
-      <Logo size={40} withWordmark subtitle="Loading your workspace…" />
+      <Logo size={26} withWordmark subtitle="Loading your workspace…" />
     </div>
   );
 }
@@ -44,6 +45,7 @@ export default function App() {
               <Route path="incidents" element={<IncidentsPage />} />
               <Route path="requests" element={<RequestsPage />} />
               <Route path="data-hub" element={<DataHubPage />} />
+              <Route path="reports" element={<ReportsPage />} />
               <Route path="settings" element={<SettingsPage />} />
             </Route>
             <Route path="*" element={<Navigate to="/storage/dashboard" replace />} />

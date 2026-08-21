@@ -1,8 +1,8 @@
 """
 Modèle AccessRequest — représente une demande d'accès cross-domain
-(ex: un Linux Engineer demandant un accès temporaire en lecture seule
-au workspace Storage), conformément au "Cross-Domain Access Workflow"
-de l'architecture de référence.
+(un ingénieur demandant un accès temporaire en lecture seule à un
+workspace dont il n'est pas titulaire), conformément au "Cross-Domain
+Access Workflow" de l'architecture de référence.
 
 Types Integer pour rester cohérent avec User/Role (pas de UUID chez nous).
 """
@@ -27,8 +27,8 @@ class AccessRequest(Base):
     id = Column(Integer, primary_key=True, index=True)
 
     # Qui demande, et vers quel workspace (texte libre pour l'instant :
-    # "linux" ou "storage" — pas d'enum Workspace partagée pour éviter
-    # une dépendance vers un fichier incident.py qui n'existe pas encore).
+    # "storage" — pas d'enum Workspace partagée pour éviter une
+    # dépendance vers un fichier incident.py qui n'existe pas encore).
     requested_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     requested_by = relationship("User", foreign_keys=[requested_by_id])
     target_workspace = Column(String, nullable=False)

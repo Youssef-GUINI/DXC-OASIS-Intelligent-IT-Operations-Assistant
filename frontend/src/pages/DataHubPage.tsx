@@ -1,4 +1,5 @@
-import { useRef, useState, type DragEvent } from 'react';
+import { useEffect, useRef, useState, type DragEvent } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Eye, FileText, Trash2, Upload } from 'lucide-react';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { Card } from '@/components/ui/Card';
@@ -27,6 +28,19 @@ export default function DataHubPage() {
     () => api.get<KnowledgeDocument[]>('/storage/documents'),
     [],
   );
+
+  // Arrivée depuis la recherche globale : on ouvre l'aperçu du document visé
+  // dès que la liste est là, sinon on ne saurait pas lequel des deux ouvrir.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedDocument = searchParams.get('document');
+  useEffect(() => {
+    if (!requestedDocument || !data) return;
+    const match = data.find((document) => document.id === requestedDocument);
+    if (match) void openPreview(match);
+    setSearchParams({}, { replace: true });
+    // openPreview est recréée à chaque rendu : la lister relancerait l'effet.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestedDocument, data, setSearchParams]);
 
   async function uploadFiles(files: FileList | null) {
     if (!files || files.length === 0) return;

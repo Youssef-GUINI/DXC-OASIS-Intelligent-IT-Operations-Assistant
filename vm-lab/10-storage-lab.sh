@@ -305,21 +305,42 @@ fi
 # lvs et systemctl start exigent root, mais les tools les appellent sans sudo.
 # Ces deux enveloppes ajoutent le sudo à leur place : aucune modification du
 # code Python n'est nécessaire.
-for binary in lvs:/usr/sbin/lvs systemctl:/usr/bin/systemctl; do
-    name=${binary%%:*}
-    target=${binary##*:}
-    cat > "/usr/local/bin/${name}" <<WRAPPER
+cat > /usr/local/bin/lvs <<'WRAPPER'
 #!/usr/bin/env bash
-# Enveloppe posée par vm-lab/10-storage-lab.sh : ${name} exige root, les tools
-# MCP l'appellent sans sudo depuis une session SSH non privilégiée.
-if [[ \$(id -u) -eq 0 ]]; then
-    exec ${target} "\$@"
+# Enveloppe posée par vm-lab/10-storage-lab.sh : lvs exige root (il ouvre
+# /dev/mapper/control), et les tools MCP l'appellent sans sudo depuis une
+# session SSH non privilégiée.
+if [[ $(id -u) -eq 0 ]]; then
+    exec /usr/sbin/lvs "$@"
 fi
-exec sudo -n ${target} "\$@"
+exec sudo -n /usr/sbin/lvs "$@"
 WRAPPER
-    chmod 755 "/usr/local/bin/${name}"
-    echo "  enveloppe /usr/local/bin/${name}"
-done
+chmod 755 /usr/local/bin/lvs
+echo "  enveloppe /usr/local/bin/lvs"
+
+cat > /usr/local/bin/systemctl <<'WRAPPER'
+#!/usr/bin/env bash
+# Enveloppe posée par vm-lab/10-storage-lab.sh.
+#
+# Seules les actions qui modifient l'état du système exigent root : `start`,
+# `stop`, `restart`… `show`, `list-timers` et consorts se lisent très bien
+# sans privilège. Or sudo coûte environ 0,4 s par appel (PAM), contre 0,02 s
+# en direct : tout passer par sudo rendait le dashboard lent de plusieurs
+# secondes à chaque chargement, pour rien.
+case ${1:-} in
+    show|status|list-timers|list-units|list-unit-files|list-sockets|cat|\
+    is-active|is-enabled|is-failed|show-environment|--version|--help)
+        exec /usr/bin/systemctl "$@"
+        ;;
+esac
+
+if [[ $(id -u) -eq 0 ]]; then
+    exec /usr/bin/systemctl "$@"
+fi
+exec sudo -n /usr/bin/systemctl "$@"
+WRAPPER
+chmod 755 /usr/local/bin/systemctl
+echo "  enveloppe /usr/local/bin/systemctl"
 
 # ------------------------------------------------------------------ bilan
 step "Infrastructure en place"

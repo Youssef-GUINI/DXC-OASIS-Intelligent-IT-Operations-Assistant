@@ -1,10 +1,10 @@
 import { Link } from 'react-router-dom';
 import { ShieldOff } from 'lucide-react';
 import { Card, CardBody, CardHeader } from '@/components/ui/Card';
-import { Badge } from '@/components/ui/Badge';
+import { Badge, StatusDot, type Tone } from '@/components/ui/Badge';
 import { EmptyState } from '@/components/ui/States';
 import { cn } from '@/lib/cn';
-import { formatCapacity } from '@/lib/format';
+import { formatCapacity, formatRelativeTime, humanize } from '@/lib/format';
 import type { Backups, Capacity } from '@/lib/types';
 
 const SEGMENTS = [
@@ -12,6 +12,17 @@ const SEGMENTS = [
   { key: 'available', label: 'Available', color: 'bg-brand-100', dot: 'bg-brand-100' },
   { key: 'reserved', label: 'Reserved', color: 'bg-slate-200', dot: 'bg-slate-200' },
 ] as const;
+
+// Ordre d'affichage des jobs : ce qui a echoue en premier, ce qui n'a jamais
+// tourne ensuite, les succes en dernier.
+const JOB_ORDER = ['failed', 'running', 'scheduled', 'success'];
+
+const JOB_TONE: Record<string, Tone> = {
+  failed: 'danger',
+  running: 'brand',
+  scheduled: 'neutral',
+  success: 'ok',
+};
 
 export function CapacityOverview({ capacity }: { capacity: Capacity }) {
   if (capacity.unavailable) {
@@ -164,6 +175,12 @@ export function BackupHealthCard({ backups }: { backups: Backups }) {
     neutral: 'bg-slate-50 text-ink-700',
   };
 
+  // Les jobs en échec d'abord : c'est ce qu'on vient chercher en ouvrant la
+  // carte. Les compteurs seuls ne disaient pas *quel* job avait échoué.
+  const jobs = [...backups.jobs].sort(
+    (first, second) => JOB_ORDER.indexOf(first.status) - JOB_ORDER.indexOf(second.status),
+  );
+
   return (
     <Card>
       <CardHeader
@@ -183,6 +200,35 @@ export function BackupHealthCard({ backups }: { backups: Backups }) {
           </div>
         ))}
       </CardBody>
+
+      <div className="border-t border-line">
+        <ul className="divide-y divide-line">
+          {jobs.map((job) => (
+            <li key={job.job_id} className="flex items-start gap-2.5 px-5 py-2.5">
+              <StatusDot tone={JOB_TONE[job.status] ?? 'neutral'} className="mt-1.5" />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[13px] font-medium text-ink-900">
+                  {(job.job_id ?? '').replace(/\.timer$/, '')}
+                </p>
+                <p className="truncate text-[11px] text-ink-500">{job.target}</p>
+              </div>
+              <div className="shrink-0 text-right">
+                <p
+                  className={cn(
+                    'text-[12px] font-medium',
+                    job.status === 'failed' ? 'text-danger-600' : 'text-ink-500',
+                  )}
+                >
+                  {humanize(job.status)}
+                </p>
+                <p className="text-[11px] text-ink-400">
+                  {job.last_run ? formatRelativeTime(job.last_run) : 'never ran'}
+                </p>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </div>
     </Card>
   );
 }
