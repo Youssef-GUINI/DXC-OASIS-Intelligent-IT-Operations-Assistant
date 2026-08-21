@@ -40,3 +40,9 @@ yarn-error.log*
 # Fichiers OS
 .DS_Store
 Thumbs.db
+
+# Documents deposes par les ingenieurs dans le Data Hub. Le fichier d'origine
+# est conserve sur disque pour permettre la re-indexation (voir
+# knowledge_service.reindex_document), mais il appartient a l'utilisateur :
+# il n'a rien a faire dans le depot.
+backend/uploads/
