@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     # ==========================================
     app_name: str = "OASIS AI Copilot"
     app_env: str = "development"
-    debug: bool = True
+    app_debug: bool = True
 
     # ==========================================
     # DATABASE

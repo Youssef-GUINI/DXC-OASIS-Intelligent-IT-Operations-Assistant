@@ -7,9 +7,10 @@ import LoginPage from '@/pages/LoginPage';
 import DashboardPage from '@/pages/DashboardPage';
 import ChatPage from '@/pages/ChatPage';
 import IncidentsPage from '@/pages/IncidentsPage';
+import RequestsPage from '@/pages/RequestsPage';
 import ReportsPage from '@/pages/ReportsPage';
 import SettingsPage from '@/pages/SettingsPage';
-
+import DataHubPage from '@/pages/DataHubPage';
 function SplashScreen() {
   return (
     <div className="flex min-h-screen items-center justify-center">
@@ -33,11 +34,12 @@ export default function App() {
           <Routes>
             <Route path="/" element={<Navigate to="/login" replace />} />
             <Route path="/login" element={<LoginPage />} />
-            <Route path="/linux" element={<RequireAuth />}>
+            <Route path="/linux" element={<RequireAuth />}>       <Route path="data-hub" element={<DataHubPage />} />
               <Route index element={<Navigate to="/linux/dashboard" replace />} />
               <Route path="dashboard" element={<DashboardPage />} />
               <Route path="chat" element={<ChatPage />} />
               <Route path="incidents" element={<IncidentsPage />} />
+              <Route path="requests" element={<RequestsPage />} />
               <Route path="reports" element={<ReportsPage />} />
               <Route path="settings" element={<SettingsPage />} />
             </Route>

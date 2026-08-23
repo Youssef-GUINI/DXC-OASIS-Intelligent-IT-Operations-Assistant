@@ -2,7 +2,9 @@ from fastapi.responses import FileResponse
 from fastapi import APIRouter, Depends, HTTPException, status as http_status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-
+from fastapi import UploadFile, File
+from app.services.knowledge_service import save_and_index_document, list_documents, get_document_content, delete_document
+from app.schemas.knowledge import KnowledgeDocumentResponse, DocumentContentResponse
 from app.services.report_service import create_report_for_incident, create_global_report
 from app.dashboard.kpi_service import get_linux_kpis
 from app.schemas.dashboard import LinuxKPIs
@@ -13,6 +15,7 @@ from app.services.incident_service import (
     save_incident,
     list_incidents,
     resolve_incident,
+    start_incident,
 )
 from app.schemas.incident import IncidentResponse
 
@@ -79,7 +82,24 @@ def resolve_incident_route(
 
     return incident
 
+@router.patch(
+    "/incidents/{incident_id}/start",
+    response_model=IncidentResponse,
+)
+def start_incident_route(
+    incident_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    incident = start_incident(db, incident_id, current_user.id)
 
+    if not incident:
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST,
+            detail="Incident introuvable ou deja pris en charge / resolu",
+        )
+
+    return incident
 @router.get("/dashboard/kpis", response_model=LinuxKPIs)
 def get_dashboard_kpis(
     current_user: User = Depends(get_current_user),
@@ -122,3 +142,43 @@ def generate_global_report_route(
         media_type="application/pdf",
         filename="rapport_global_linux.pdf",
     )
+@router.post("/knowledge", response_model=KnowledgeDocumentResponse)
+async def upload_knowledge_document(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    file_bytes = await file.read()
+    return save_and_index_document(db, file.filename, file_bytes, file.content_type, current_user.id)
+
+
+@router.get("/knowledge", response_model=list[KnowledgeDocumentResponse])
+def get_knowledge_documents(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return list_documents(db)
+
+
+@router.get("/knowledge/{document_id}/content", response_model=DocumentContentResponse)
+def get_knowledge_document_content(
+    document_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    result = get_document_content(db, document_id)
+    if not result:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Document introuvable")
+    return result
+
+
+@router.delete("/knowledge/{document_id}")
+def delete_knowledge_document(
+    document_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    success = delete_document(db, document_id)
+    if not success:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Document introuvable")
+    return {"status": "deleted"}

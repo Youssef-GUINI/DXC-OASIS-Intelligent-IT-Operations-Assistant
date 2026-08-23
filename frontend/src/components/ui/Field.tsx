@@ -1,7 +1,7 @@
-import type { InputHTMLAttributes, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react';
+import type { InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react';
 import { cn } from '@/lib/cn';
 
-function FieldShell({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+function FieldShell({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
     <label className="block">
       <span className="mb-1.5 block text-[13px] font-medium text-ink-700">{label}</span>
@@ -14,10 +14,24 @@ function FieldShell({ label, hint, children }: { label: string; hint?: string; c
 const fieldClass =
   'w-full rounded-lg border border-line bg-canvas px-3 text-sm text-ink-900 placeholder:text-ink-400 focus:border-brand-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-100';
 
-export function TextField({ label, hint, className, ...props }: InputHTMLAttributes<HTMLInputElement> & { label: string; hint?: string }) {
+type TextFieldProps = InputHTMLAttributes<HTMLInputElement> & {
+  as?: 'input' | 'textarea';
+  hint?: string;
+  label: string;
+  rows?: number;
+};
+
+export function TextField({ label, hint, className, as = 'input', ...props }: TextFieldProps) {
   return (
     <FieldShell label={label} hint={hint}>
-      <input {...props} className={cn('h-10', fieldClass, className)} />
+      {as === 'textarea' ? (
+        <textarea
+          {...(props as TextareaHTMLAttributes<HTMLTextAreaElement>)}
+          className={cn('min-h-24 resize-y py-2.5', fieldClass, className)}
+        />
+      ) : (
+        <input {...props} className={cn('h-10', fieldClass, className)} />
+      )}
     </FieldShell>
   );
 }

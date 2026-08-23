@@ -24,8 +24,7 @@ export default function DataHubPage() {
   const [pendingDelete, setPendingDelete] = useState<KnowledgeDocument | null>(null);
 
   const { data, error, loading, reload } = useResource<KnowledgeDocument[]>(
-    () => api.get<KnowledgeDocument[]>('/storage/documents'),
-    [],
+    () => api.get<KnowledgeDocument[]>('/linux/knowledge'),    [],
   );
 
   async function uploadFiles(files: FileList | null) {
@@ -33,8 +32,7 @@ export default function DataHubPage() {
     setUploading(true);
     for (const file of Array.from(files)) {
       try {
-        const document = await api.upload<KnowledgeDocument>('/storage/documents', file);
-        if (document.status === 'failed') {
+        const document = await api.upload<KnowledgeDocument>('/linux/knowledge', file);        if (document.status === 'failed') {
           notify({
             tone: 'error',
             title: `${file.name} was saved but not indexed`,
@@ -67,8 +65,7 @@ export default function DataHubPage() {
   async function openPreview(document: KnowledgeDocument) {
     try {
       const result = await api.get<{ filename: string; text: string }>(
-        `/storage/documents/${document.id}/content`,
-      );
+        `/linux/knowledge/${document.id}/content`,      );
       setPreview(result);
     } catch (caught) {
       notify({
@@ -82,8 +79,7 @@ export default function DataHubPage() {
   async function confirmDelete() {
     if (!pendingDelete) return;
     try {
-      await api.delete(`/storage/documents/${pendingDelete.id}`);
-      notify({
+      await api.delete(`/linux/knowledge/${pendingDelete.id}`);      notify({
         title: `${pendingDelete.filename} removed`,
         detail: 'OASIS will no longer use it when answering you.',
       });

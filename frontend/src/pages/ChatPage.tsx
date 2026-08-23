@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { AlertCircle, ArrowUp, Sparkles } from 'lucide-react';
+import { AlertCircle, ArrowUp, MessageSquare, Plus, Sparkles } from 'lucide-react';
 import { Logo } from '@/components/Logo';
 import { MarkdownMessage } from '@/components/ui/MarkdownMessage';
 import { api, ApiError } from '@/lib/api';
@@ -13,6 +13,19 @@ type Message = {
   at: Date;
   failed?: boolean;
 };
+
+type Conversation = {
+  id: string;
+  title: string;
+  updatedAt: string;
+  messages: Message[];
+};
+
+type StoredConversation = Omit<Conversation, 'messages'> & {
+  messages: (Omit<Message, 'at'> & { at: string })[];
+};
+
+const HISTORY_KEY = 'oasis.linux.chat.history';
 
 const SUGGESTIONS = [
   'Mon CPU est bloque a 100%, que faire ?',
@@ -44,12 +57,56 @@ function TypingIndicator() {
   );
 }
 
+function relativeTime(value: string) {
+  const diffMs = Date.now() - new Date(value).getTime();
+  const minutes = Math.max(1, Math.round(diffMs / 60000));
+  if (minutes < 60) return `${minutes} minutes ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} hours ago`;
+  return `${Math.round(hours / 24)} days ago`;
+}
+
+function buildTitle(text: string) {
+  return text.length > 30 ? `${text.slice(0, 30)}...` : text;
+}
+
+function loadHistory(): Conversation[] {
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as StoredConversation[];
+    return parsed.map((conversation) => ({
+      ...conversation,
+      messages: conversation.messages.map((message) => ({
+        ...message,
+        at: new Date(message.at),
+      })),
+    }));
+  } catch {
+    return [];
+  }
+}
+
+function saveHistory(conversations: Conversation[]) {
+  const payload: StoredConversation[] = conversations.slice(0, 12).map((conversation) => ({
+    ...conversation,
+    messages: conversation.messages.map((message) => ({
+      ...message,
+      at: message.at.toISOString(),
+    })),
+  }));
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(payload));
+}
+
 export default function ChatPage() {
   const { user } = useAuth();
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [conversations, setConversations] = useState<Conversation[]>(() => loadHistory());
+  const [activeId, setActiveId] = useState<string | null>(() => loadHistory()[0]?.id ?? null);
   const [draft, setDraft] = useState('');
   const [thinking, setThinking] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
+  const activeConversation = conversations.find((conversation) => conversation.id === activeId) ?? null;
+  const messages = activeConversation?.messages ?? [];
 
   const initials = (user?.full_name || 'Linux Engineer')
     .split(' ')
@@ -61,14 +118,51 @@ export default function ChatPage() {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, thinking]);
 
+  useEffect(() => {
+    saveHistory(conversations);
+  }, [conversations]);
+
+  function startNewConversation() {
+    setActiveId(null);
+    setDraft('');
+  }
+
+  function appendMessages(conversationId: string, items: Message[], titleSeed?: string) {
+    const now = new Date().toISOString();
+    setConversations((current) => {
+      const exists = current.some((conversation) => conversation.id === conversationId);
+      if (!exists) {
+        return [
+          {
+            id: conversationId,
+            title: buildTitle(titleSeed ?? 'New conversation'),
+            updatedAt: now,
+            messages: items,
+          },
+          ...current,
+        ];
+      }
+      return current
+        .map((conversation) =>
+          conversation.id === conversationId
+            ? {
+                ...conversation,
+                updatedAt: now,
+                messages: [...conversation.messages, ...items],
+              }
+            : conversation,
+        )
+        .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime());
+    });
+  }
+
   async function send(text: string) {
     const trimmed = text.trim();
     if (!trimmed || thinking) return;
 
-    setMessages((current) => [
-      ...current,
-      { id: Date.now(), author: 'user', text: trimmed, at: new Date() },
-    ]);
+    const conversationId = activeId ?? `conv-${Date.now()}`;
+    if (!activeId) setActiveId(conversationId);
+    appendMessages(conversationId, [{ id: Date.now(), author: 'user', text: trimmed, at: new Date() }], trimmed);
     setDraft('');
     setThinking(true);
 
@@ -76,14 +170,10 @@ export default function ChatPage() {
       const { response } = await api.post<{ response: string }>('/linux/chat', {
         message: trimmed,
       });
-      setMessages((current) => [
-        ...current,
-        { id: Date.now() + 1, author: 'oasis', text: response, at: new Date() },
-      ]);
+      appendMessages(conversationId, [{ id: Date.now() + 1, author: 'oasis', text: response, at: new Date() }]);
     } catch (caught) {
       if (caught instanceof ApiError && caught.status === 401) return;
-      setMessages((current) => [
-        ...current,
+      appendMessages(conversationId, [
         {
           id: Date.now() + 1,
           author: 'oasis',
@@ -106,18 +196,53 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="mx-auto flex h-[calc(100vh-8rem)] max-w-4xl flex-col">
-      <header className="mb-4 flex items-center gap-3">
-        <Logo size={34} />
-        <div className="min-w-0">
-          <h1 className="text-[18px] font-semibold tracking-tight text-ink-900">OASIS Linux Assistant</h1>
-          <p className="text-[13px] text-ink-500">
-            Your Linux troubleshooting persona powered by Groq and RAG
-          </p>
+    <div className="mx-auto grid h-[calc(100vh-8rem)] max-w-6xl gap-5 lg:grid-cols-[280px_minmax(0,1fr)]">
+      <aside className="card hidden min-h-0 flex-col p-3 lg:flex">
+        <button
+          onClick={startNewConversation}
+          className="focus-ring flex h-11 items-center justify-center gap-2 rounded-lg border border-line bg-white text-[14px] font-semibold text-ink-800 hover:bg-slate-50"
+        >
+          <Plus className="h-4 w-4" />
+          New conversation
+        </button>
+        <div className="mt-3 flex-1 overflow-y-auto">
+          {conversations.length === 0 ? (
+            <p className="px-2 py-5 text-[13px] text-ink-400">No saved conversations yet.</p>
+          ) : (
+            <div className="space-y-1">
+              {conversations.map((conversation) => (
+                <button
+                  key={conversation.id}
+                  onClick={() => setActiveId(conversation.id)}
+                  className={cn(
+                    'flex w-full items-start gap-3 rounded-lg px-3 py-3 text-left transition-colors',
+                    activeId === conversation.id ? 'bg-brand-50 text-brand-700' : 'text-ink-600 hover:bg-slate-50',
+                  )}
+                >
+                  <MessageSquare className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span className="min-w-0">
+                    <span className="block truncate text-[14px] font-medium">{conversation.title}</span>
+                    <span className="mt-1 block text-[12px] text-ink-400">{relativeTime(conversation.updatedAt)}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
-      </header>
+      </aside>
 
-      <div className="card flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="flex min-h-0 flex-col">
+        <header className="mb-4 flex items-center gap-3">
+          <Logo size={34} />
+          <div className="min-w-0">
+            <h1 className="text-[18px] font-semibold tracking-tight text-ink-900">OASIS Linux Assistant</h1>
+            <p className="text-[13px] text-ink-500">
+              Your Linux troubleshooting persona powered by Groq and RAG
+            </p>
+          </div>
+        </header>
+
+        <div className="card flex min-h-0 flex-1 flex-col overflow-hidden">
         <div className="flex-1 overflow-y-auto px-5 py-6">
           {messages.length === 0 && !thinking && (
             <div className="mx-auto max-w-lg py-8 text-center">
@@ -186,6 +311,12 @@ export default function ChatPage() {
         <div className="border-t border-line bg-white px-5 py-4">
           {messages.length === 0 && (
             <div className="mb-3 flex flex-wrap gap-2">
+              <button
+                onClick={startNewConversation}
+                className="focus-ring rounded-full border border-line bg-white px-3 py-1.5 text-[12px] font-semibold text-brand-700 transition-colors hover:border-brand-200 hover:bg-brand-50 lg:hidden"
+              >
+                New conversation
+              </button>
               {SUGGESTIONS.map((suggestion) => (
                 <button
                   key={suggestion}
@@ -222,6 +353,7 @@ export default function ChatPage() {
             </button>
           </form>
         </div>
+      </div>
       </div>
     </div>
   );

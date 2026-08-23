@@ -2,7 +2,10 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Bell, CircleHelp, Grid3X3, LogOut, Menu, Plus, Search, Settings } from 'lucide-react';
 import { useAuth } from '@/auth/AuthContext';
+import { api } from '@/lib/api';
 import { cn } from '@/lib/cn';
+import { formatRelativeTime } from '@/lib/format';
+import type { LinuxIncidentApi } from '@/lib/types';
 
 function useDismissOnOutsideClick(onDismiss: () => void) {
   const ref = useRef<HTMLDivElement>(null);
@@ -16,11 +19,14 @@ function useDismissOnOutsideClick(onDismiss: () => void) {
   return ref;
 }
 
-export function Topbar({ onOpenMenu, attentionCount = 0 }: { onOpenMenu: () => void; attentionCount?: number }) {
+export function Topbar({ onOpenMenu }: { onOpenMenu: () => void }) {
   const { user, signOut } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [incidents, setIncidents] = useState<LinuxIncidentApi[]>([]);
   const [query, setQuery] = useState('');
   const menuRef = useDismissOnOutsideClick(() => setMenuOpen(false));
+  const notificationsRef = useDismissOnOutsideClick(() => setNotificationsOpen(false));
   const navigate = useNavigate();
   const displayName = user?.full_name || 'Linux Engineer';
   const initials = displayName
@@ -28,6 +34,22 @@ export function Topbar({ onOpenMenu, attentionCount = 0 }: { onOpenMenu: () => v
     .slice(0, 2)
     .map((part) => part.charAt(0).toUpperCase())
     .join('');
+  const openIncidents = incidents.filter((incident) => incident.status !== 'resolved').slice(0, 6);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .get<LinuxIncidentApi[]>('/linux/incidents')
+      .then((result) => {
+        if (!cancelled) setIncidents(result);
+      })
+      .catch(() => {
+        if (!cancelled) setIncidents([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   function handleSearch(event: FormEvent) {
     event.preventDefault();
@@ -65,14 +87,70 @@ export function Topbar({ onOpenMenu, attentionCount = 0 }: { onOpenMenu: () => v
         <Link to="/linux/dashboard" aria-label="Dashboard" className="focus-ring rounded-lg p-2.5 text-ink-500 transition-colors hover:bg-slate-100 hover:text-ink-900">
           <Grid3X3 className="h-[18px] w-[18px]" />
         </Link>
-        <Link to="/linux/incidents" aria-label="Notifications" className="focus-ring relative rounded-lg p-2.5 text-ink-500 transition-colors hover:bg-slate-100 hover:text-ink-900">
-          <Bell className="h-[18px] w-[18px]" />
-          {attentionCount > 0 && (
-            <span className="absolute right-1.5 top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger-500 px-1 text-[10px] font-semibold text-white">
-              {attentionCount > 9 ? '9+' : attentionCount}
-            </span>
+        <div className="relative" ref={notificationsRef}>
+          <button
+            onClick={() => setNotificationsOpen((open) => !open)}
+            aria-label="Notifications"
+            className={cn(
+              'focus-ring relative rounded-lg p-2.5 text-ink-500 transition-colors hover:bg-slate-100 hover:text-ink-900',
+              notificationsOpen && 'bg-slate-100 text-ink-900',
+            )}
+          >
+            <Bell className="h-[18px] w-[18px]" />
+            {openIncidents.length > 0 && (
+              <span className="absolute right-1.5 top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger-500 px-1 text-[10px] font-semibold text-white">
+                {openIncidents.length > 9 ? '9+' : openIncidents.length}
+              </span>
+            )}
+          </button>
+
+          {notificationsOpen && (
+            <div className="absolute right-0 top-full mt-1.5 w-80 overflow-hidden rounded-xl border border-line bg-white shadow-lift animate-fade-up">
+              <div className="flex items-center justify-between border-b border-line px-4 py-3">
+                <div>
+                  <p className="text-[13px] font-semibold text-ink-900">Open incidents</p>
+                  <p className="text-[12px] text-ink-500">{openIncidents.length} need attention</p>
+                </div>
+                <button
+                  onClick={() => {
+                    setNotificationsOpen(false);
+                    navigate('/linux/incidents');
+                  }}
+                  className="text-[12px] font-semibold text-brand-600 hover:text-brand-700"
+                >
+                  View all
+                </button>
+              </div>
+              {openIncidents.length === 0 ? (
+                <div className="px-4 py-5 text-[13px] text-ink-500">No open incidents right now.</div>
+              ) : (
+                <div className="max-h-80 overflow-y-auto py-1">
+                  {openIncidents.map((incident) => (
+                    <button
+                      key={incident.id}
+                      onClick={() => {
+                        setNotificationsOpen(false);
+                        navigate('/linux/incidents');
+                      }}
+                      className="flex w-full gap-3 px-4 py-3 text-left transition-colors hover:bg-slate-50"
+                    >
+                      <span className={cn('mt-1 h-2 w-2 shrink-0 rounded-full', incident.severity === 'high' || incident.severity === 'critical' ? 'bg-danger-500' : 'bg-warn-500')} />
+                      <span className="min-w-0">
+                        <span className="block truncate text-[13px] font-semibold text-ink-900">
+                          INC-{incident.id} · {incident.category ?? 'linux'}
+                        </span>
+                        <span className="mt-0.5 line-clamp-2 block text-[12px] leading-relaxed text-ink-500">
+                          {incident.user_message || incident.response}
+                        </span>
+                        <span className="mt-1 block text-[11px] text-ink-400">{formatRelativeTime(incident.created_at)}</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
-        </Link>
+        </div>
         <Link to="/linux/chat" aria-label="Help" className="focus-ring rounded-lg p-2.5 text-ink-500 transition-colors hover:bg-slate-100 hover:text-ink-900">
           <CircleHelp className="h-[18px] w-[18px]" />
         </Link>

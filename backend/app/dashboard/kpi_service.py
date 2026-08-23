@@ -11,13 +11,21 @@ def get_linux_kpis(db: Session) -> dict:
     open_count = base_query.filter(Incident.status == "open").count()
     resolved_count = base_query.filter(Incident.status == "resolved").count()
 
+    # category IS NULL exclu volontairement : ce sont des incidents systeme
+    # tres anciens, crees avant l'ajout de la colonne `category`, qui restent
+    # parfois ouverts plusieurs jours avant un nettoyage manuel. Les inclure
+    # fait exploser artificiellement le temps moyen de resolution.
     avg_resolution_seconds = (
         db.query(
             func.avg(
                 func.extract("epoch", Incident.resolved_at - Incident.created_at)
             )
         )
-        .filter(Incident.persona == "linux_persona", Incident.status == "resolved")
+        .filter(
+            Incident.persona == "linux_persona",
+            Incident.status == "resolved",
+            Incident.category.isnot(None),
+        )
         .scalar()
     )
     avg_resolution_minutes = round(avg_resolution_seconds / 60, 1) if avg_resolution_seconds else None

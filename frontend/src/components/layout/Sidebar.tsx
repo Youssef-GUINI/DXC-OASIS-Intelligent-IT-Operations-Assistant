@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { FileText, LayoutGrid, MessageSquare, Settings, ShieldAlert, type LucideIcon } from 'lucide-react';
+import { ClipboardList, Database, FileText, LayoutGrid, MessageSquare, Settings, ShieldAlert, type LucideIcon } from 'lucide-react';
 import { Logo } from '@/components/Logo';
 import { useAuth } from '@/auth/AuthContext';
 import { cn } from '@/lib/cn';
@@ -10,6 +10,8 @@ const NAV: NavItem[] = [
   { to: '/linux/dashboard', label: 'Dashboard', icon: LayoutGrid },
   { to: '/linux/chat', label: 'AI Chat', icon: MessageSquare },
   { to: '/linux/incidents', label: 'Incidents', icon: ShieldAlert },
+  { to: '/linux/requests', label: 'Requests', icon: ClipboardList },
+  { to: '/linux/data-hub', label: 'Data Hub', icon: Database },
   { to: '/linux/reports', label: 'Reports', icon: FileText },
 ];
 

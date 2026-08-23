@@ -29,6 +29,10 @@ export type LinuxIncidentApi = {
   diagnosis: string | null;
   created_at: string;
   resolved_at: string | null;
+  started_at: string | null;
+  started_by_id: number | null;
+  recurrence_count: number;
+  is_recurring: boolean;
 };
 
 export type Severity = 'critical' | 'high' | 'medium' | 'low';
@@ -192,4 +196,16 @@ export type KnowledgeDocument = {
   error: string | null;
   created_at: string;
   indexed_at: string | null;
+};
+export type AccessRequest = {
+  id: number;
+  requested_by_id: number;
+  target_workspace: string;
+  reason: string | null;
+  status: string;
+  reviewed_by_id: number | null;
+  granted_token: string | null;
+  expires_at: string | null;
+  created_at: string;
+  reviewed_at: string | null;
 };

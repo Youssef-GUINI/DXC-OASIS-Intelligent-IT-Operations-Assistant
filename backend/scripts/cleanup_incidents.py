@@ -1,9 +1,17 @@
 """
-Nettoie les incidents "pollues" crees par l'ancien save_incident() (avant le fix
-qui empeche le chat de creer des incidents automatiquement).
+Nettoie les incidents "pollues" en base, selon deux criteres independants :
 
-Critere correct : source == "user" (uniquement le chat cree ces incidents ;
-les incidents systeme, meme anciens et sans categorie, ont toujours source="system").
+1. source == "user"
+   Crees par l'ancien save_incident() (avant le fix qui empeche le chat de
+   creer des incidents automatiquement).
+
+2. category IS NULL (peu importe la source)
+   Incidents systeme tres anciens, crees avant l'ajout de la colonne
+   `category` au detecteur. Symptome typique : plusieurs dizaines
+   d'incidents crees le meme jour puis tous resolus d'un coup, des jours
+   plus tard, lors d'un test manuel ou d'un redemarrage -> ils faussent
+   fortement le temps moyen de resolution (ecarts de plusieurs jours,
+   contre quelques minutes pour les incidents recents).
 
 Usage (depuis backend/, venv active) :
     python -m scripts.cleanup_incidents                  # dry-run
@@ -13,6 +21,8 @@ Usage (depuis backend/, venv active) :
         # que tu veux garder malgre tout)
 """
 import argparse
+
+from sqlalchemy import or_
 
 from app.database.session import SessionLocal
 from app.models.incident import Incident
@@ -37,7 +47,12 @@ def main():
 
     db = SessionLocal()
     try:
-        query = db.query(Incident).filter(Incident.source == "user")
+        query = db.query(Incident).filter(
+            or_(
+                Incident.source == "user",
+                Incident.category.is_(None),
+            )
+        )
 
         if args.exclude:
             query = query.filter(~Incident.id.in_(args.exclude))
@@ -45,15 +60,16 @@ def main():
         targets = query.order_by(Incident.id).all()
 
         if not targets:
-            print("Rien a nettoyer : aucun incident source='user' trouve.")
+            print("Rien a nettoyer : aucun incident source='user' ou category=NULL trouve.")
             return
 
         ids = [i.id for i in targets]
 
-        print(f"{len(targets)} incident(s) 'pollue(s)' trouve(s) (source='user') :\n")
+        print(f"{len(targets)} incident(s) 'pollue(s)' trouve(s) (source='user' OU category=NULL) :\n")
         for incident in targets:
             preview = (incident.user_message or "").replace("\n", " ")[:70]
-            print(f"  #{incident.id:>4}  {incident.created_at}  {preview}")
+            reason = "source=user" if incident.source == "user" else "category=NULL"
+            print(f"  #{incident.id:>4}  {incident.created_at}  [{reason}]  {preview}")
 
         linked_reports = db.query(Report).filter(Report.incident_id.in_(ids)).all()
         if linked_reports:

@@ -32,3 +32,17 @@ def decode_access_token(token: str) -> dict | None:
         return payload
     except JWTError:
         return None
+    
+def create_cross_domain_token(subject: str, workspace: str, minutes: int = 30) -> str:
+    """
+    Cree un JWT a portee limitee : acces en lecture seule a UN SEUL
+    workspace precis, avec une expiration courte.
+    """
+    expire = datetime.now(timezone.utc) + timedelta(minutes=minutes)
+    payload = {
+        "sub": subject,
+        "scope": "cross_domain_read_only",
+        "workspace": workspace,
+        "exp": expire,
+    }
+    return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)                                                                       

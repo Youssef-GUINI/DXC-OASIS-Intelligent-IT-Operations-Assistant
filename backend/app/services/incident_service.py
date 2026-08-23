@@ -39,7 +39,24 @@ def resolve_incident(db: Session, incident_id: int) -> Incident | None:
     db.refresh(incident)
     return incident
 
+def start_incident(db: Session, incident_id: int, user_id: int) -> Incident | None:
+    """
+    Marque un incident comme "in_progress" - un ingenieur indique qu'il
+    prend en charge le probleme. Ne fonctionne que depuis le statut "open"
+    (on ne peut pas "prendre en charge" un incident deja resolu, et on
+    n'ecrase pas la prise en charge de quelqu'un d'autre).
+    """
+    incident = db.query(Incident).filter(Incident.id == incident_id).first()
+    if not incident or incident.status != "open":
+        return None
 
+    incident.status = "in_progress"
+    incident.started_by_id = user_id
+    incident.started_at = datetime.now(timezone.utc)
+
+    db.commit()
+    db.refresh(incident)
+    return incident
 def auto_resolve_by_category(db: Session, persona: str, category: str) -> int:
     open_incidents = (
         db.query(Incident)
@@ -47,7 +64,8 @@ def auto_resolve_by_category(db: Session, persona: str, category: str) -> int:
             Incident.persona == persona,
             Incident.category == category,
             Incident.source == "system",
-            Incident.status == "open",
+            Incident.status.in_(["open", "in_progress"]),
+            Incident.severity != "critical",
         )
         .all()
     )

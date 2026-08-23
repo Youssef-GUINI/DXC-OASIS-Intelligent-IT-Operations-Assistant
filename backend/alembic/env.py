@@ -9,7 +9,7 @@ sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from app.database.base import Base
 from app.core.config import settings
-from app.models import role, user, incident  # noqa: F401
+from app.models import role, user, incident, report, audit_log, access_request  # noqa: F401
 config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
@@ -46,3 +46,21 @@ if context.is_offline_mode():
     run_migrations_offline()
 else:
     run_migrations_online()
+
+from pypdf import PdfReader
+
+
+def load_pdf_file(filepath: str) -> str:
+    reader = PdfReader(filepath)
+    text_parts = [page.extract_text() or "" for page in reader.pages]
+    return "\n\n".join(text_parts)
+
+
+def load_any_file(filepath: str) -> str:
+    """
+    Charge le contenu texte d'un fichier, quel que soit son type
+    (.md, .txt, .pdf) - point d'entree unique pour l'upload.
+    """
+    if filepath.lower().endswith(".pdf"):
+        return load_pdf_file(filepath)
+    return load_text_file(filepath)

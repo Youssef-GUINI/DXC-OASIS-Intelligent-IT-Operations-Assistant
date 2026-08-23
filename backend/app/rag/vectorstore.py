@@ -42,3 +42,12 @@ def search(collection_name: str, query: str, n_results: int = 3) -> list[dict]:
     ):
         output.append({"text": doc, "source": metadata["source"], "distance": distance})
     return output
+def delete_by_source(collection_name: str, source: str):
+    """
+    Supprime tous les chunks d'un document precis dans une collection,
+    en se basant sur le prefixe d'id utilise a l'indexation ({source}_{i}).
+    """
+    collection = get_or_create_collection(collection_name)
+    existing = collection.get(where={"source": source})
+    if existing and existing.get("ids"):
+        collection.delete(ids=existing["ids"])

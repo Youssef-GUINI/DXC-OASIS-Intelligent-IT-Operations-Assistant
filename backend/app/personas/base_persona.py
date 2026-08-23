@@ -44,10 +44,10 @@ class BasePersona:
                 return groq_client.chat(user_message, system_prompt=system_message)
             except (NotFoundError, RateLimitError) as exc:
                 logger.warning("LLM chat unavailable for persona %s: %s", self.name, exc.__class__.__name__)
-                return self._offline_fallback(user_message, exc)
+                return self._tool_aware_offline_fallback(user_message, exc, db)
             except Exception as exc:
                 logger.exception("LLM chat failed for persona %s", self.name)
-                return self._offline_fallback(user_message, exc)
+                return self._tool_aware_offline_fallback(user_message, exc, db)
 
         messages = [
             {"role": "system", "content": system_message},
@@ -59,10 +59,10 @@ class BasePersona:
                 message = groq_client.chat_with_tools(messages, self.tools_schema)
             except (NotFoundError, RateLimitError) as exc:
                 logger.warning("LLM tool chat unavailable for persona %s: %s", self.name, exc.__class__.__name__)
-                return self._offline_fallback(user_message, exc)
+                return self._tool_aware_offline_fallback(user_message, exc, db)
             except Exception as exc:
                 logger.exception("LLM tool chat failed for persona %s", self.name)
-                return self._offline_fallback(user_message, exc)
+                return self._tool_aware_offline_fallback(user_message, exc, db)
 
             if not message.tool_calls:
                 return message.content
@@ -131,6 +131,155 @@ class BasePersona:
             f"Question : {user_message}\n\n"
             f"{json.dumps(parsed_results, ensure_ascii=False, indent=2)}"
         )
+
+    def _tool_aware_offline_fallback(self, user_message: str, exc: Exception, db=None) -> str:
+        tool_names = self._select_offline_tools(user_message)
+        if not tool_names:
+            small_talk = self._small_talk_offline_response(user_message, exc)
+            if small_talk:
+                return small_talk
+            return self._offline_fallback(user_message, exc)
+
+        results = []
+        for tool_name in tool_names:
+            results.append((tool_name, self._execute_tool(tool_name, {}, db)))
+
+        return self._format_offline_tool_response(user_message, exc, results)
+
+    def _select_offline_tools(self, user_message: str) -> list[str]:
+        if not self.tools_schema:
+            return []
+
+        lower = user_message.lower()
+        requested = []
+
+        def add(tool_name: str) -> None:
+            if any(tool["function"]["name"] == tool_name for tool in self.tools_schema) and tool_name not in requested:
+                requested.append(tool_name)
+
+        asks_overview = any(
+            word in lower
+            for word in [
+                "etat",
+                "status",
+                "sante",
+                "health",
+                "dashboard",
+                "diagnostic",
+                "check",
+                "tout",
+                "global",
+            ]
+        )
+        asks_incidents = "incident" in lower or "alerte" in lower or "alert" in lower
+
+        if "cpu" in lower or "processeur" in lower or "charge" in lower or "load" in lower or asks_overview:
+            add("get_cpu_usage")
+        if "ram" in lower or "memoire" in lower or "memory" in lower or asks_overview:
+            add("get_ram_usage")
+        if "disk" in lower or "disque" in lower or "stockage" in lower or "storage" in lower or "/var" in lower or asks_overview:
+            add("get_disk_usage")
+        if "service" in lower or "systemctl" in lower or "nginx" in lower or "docker" in lower or asks_overview:
+            add("get_services_status")
+        if "network" in lower or "reseau" in lower or "latence" in lower or "ping" in lower or asks_overview:
+            add("check_network")
+        if asks_incidents:
+            add("get_recent_incidents")
+
+        return requested
+
+    def _small_talk_offline_response(self, user_message: str, exc: Exception) -> str | None:
+        lower = user_message.lower().strip()
+        compact = lower.replace("?", "").replace("!", "").replace(".", "").replace(",", "")
+        words = set(compact.split())
+        greetings = {"bonjour", "salut", "hello", "hi", "salam", "bonsoir", "cv", "ca", "va"}
+
+        if compact and words.issubset(greetings):
+            return (
+                "Bonjour ! Oui, ca va. Je suis pret a t'aider sur Linux, les incidents, "
+                "le CPU, la RAM, le disque, les services ou le reseau.\n\n"
+                f"Note technique : le LLM externe est actuellement limite ({exc.__class__.__name__}), "
+                "donc je peux continuer en mode local avec les outils OASIS."
+            )
+
+        return None
+
+    def _format_offline_tool_response(self, user_message: str, exc: Exception, results: list[tuple[str, dict]]) -> str:
+        reason = exc.__class__.__name__
+        lines = [
+            "Le service LLM externe est limite pour le moment, mais j'ai utilise les outils locaux OASIS.",
+            f"Cause technique detectee : {reason}.",
+            "",
+            "Etat recupere :",
+        ]
+
+        has_error = False
+        risk_notes = []
+
+        for tool_name, payload in results:
+            if "error" in payload:
+                has_error = True
+                lines.append(f"- {tool_name}: indisponible ({payload['error']})")
+                continue
+
+            data = payload.get("result", payload)
+            if tool_name == "get_cpu_usage":
+                usage = data.get("usage_percent")
+                lines.append(
+                    f"- CPU: {usage}% utilise, top process: {data.get('top_process', 'n/a')}, coeurs: {data.get('cores', 'n/a')}."
+                )
+                if isinstance(usage, (int, float)) and usage >= 85:
+                    risk_notes.append("CPU eleve: verifier `top` et `ps aux --sort=-%cpu | head -10`.")
+            elif tool_name == "get_ram_usage":
+                usage = data.get("usage_percent")
+                lines.append(
+                    f"- RAM: {data.get('used_gb', 'n/a')} GB / {data.get('total_gb', 'n/a')} GB ({usage}%)."
+                )
+                if isinstance(usage, (int, float)) and usage >= 85:
+                    risk_notes.append("RAM elevee: verifier `free -h`, `vmstat 1 5` et les processus par memoire.")
+            elif tool_name == "get_disk_usage":
+                usage = data.get("usage_percent")
+                lines.append(
+                    f"- Disque {data.get('mount_point', '/')}: {data.get('used_gb', 'n/a')} GB / {data.get('total_gb', 'n/a')} GB ({usage}%)."
+                )
+                if isinstance(usage, (int, float)) and usage >= 85:
+                    risk_notes.append("Disque eleve: verifier `df -h` puis les gros dossiers avec `du -xh /var | sort -h | tail -20`.")
+            elif tool_name == "get_services_status":
+                lines.append(f"- Services: {json.dumps(data, ensure_ascii=False)}.")
+                failed_services = [service for service, status in data.items() if status == "failed"] if isinstance(data, dict) else []
+                if failed_services:
+                    risk_notes.append(
+                        "Service(s) en echec: "
+                        + ", ".join(failed_services)
+                        + ". Verifier `systemctl status <service>` avant redemarrage."
+                    )
+            elif tool_name == "check_network":
+                lines.append(
+                    f"- Reseau: interface {data.get('interface_status', 'n/a')}, latence {data.get('latency_ms', 'n/a')} ms, perte {data.get('packet_loss_percent', 'n/a')}%."
+                )
+                loss = data.get("packet_loss_percent")
+                if isinstance(loss, (int, float)) and loss > 1:
+                    risk_notes.append("Perte reseau notable: verifier l'interface, DNS et passerelle.")
+            elif tool_name == "get_recent_incidents":
+                incidents = data if isinstance(data, list) else []
+                lines.append(f"- Incidents recents: {len(incidents)} element(s) retournes.")
+                for incident in incidents[:5]:
+                    lines.append(
+                        f"  - #{incident.get('id', 'n/a')} {incident.get('category', 'n/a')} / {incident.get('severity', 'n/a')} / {incident.get('status', 'n/a')}"
+                    )
+            else:
+                lines.append(f"- {tool_name}: {json.dumps(data, ensure_ascii=False)}")
+
+        lines.append("")
+        if risk_notes:
+            lines.append("Actions recommandees :")
+            lines.extend(f"- {note}" for note in risk_notes)
+        elif has_error:
+            lines.append("Certains outils locaux n'ont pas repondu. Verifie les logs backend et le serveur MCP local.")
+        else:
+            lines.append("Aucune anomalie critique evidente dans ces donnees locales. Continue avec les incidents ouverts si le dashboard signale un probleme.")
+
+        return "\n".join(lines)
 
     def _offline_fallback(self, user_message: str, exc: Exception) -> str:
         lower = user_message.lower()
