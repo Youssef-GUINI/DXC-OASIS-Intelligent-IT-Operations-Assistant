@@ -12,6 +12,7 @@ import { api } from '@/lib/api';
 import { cn } from '@/lib/cn';
 import { formatRelativeTime } from '@/lib/format';
 import { useResource } from '@/lib/useResource';
+import { useWorkspaceBase } from '@/lib/workspace';
 import type { LinuxIncidentApi } from '@/lib/types';
 
 type Filter = 'all' | 'critical' | 'high' | 'medium' | 'low' | 'in_progress' | 'resolved' | 'recurring';
@@ -40,6 +41,7 @@ function saveBlob(blob: Blob, filename: string) {
 
 export default function IncidentsPage() {
   const notify = useToast();
+  const workspace = useWorkspaceBase();
   const [filter, setFilter] = useState<Filter>('all');
   const [selected, setSelected] = useState<LinuxIncidentApi | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -210,7 +212,7 @@ export default function IncidentsPage() {
               <Button
                 variant="primary"
                 icon={<Sparkles className="h-4 w-4" />}
-                onClick={() => navigate('/linux/chat')}
+                onClick={() => navigate(`/${workspace}/chat`)}
               >
                 Investigate with AI
               </Button>

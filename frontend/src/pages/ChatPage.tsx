@@ -5,6 +5,7 @@ import { MarkdownMessage } from '@/components/ui/MarkdownMessage';
 import { api, ApiError } from '@/lib/api';
 import { cn } from '@/lib/cn';
 import { useAuth } from '@/auth/AuthContext';
+import { useWorkspaceBase } from '@/lib/workspace';
 
 type Message = {
   id: number;
@@ -24,8 +25,6 @@ type Conversation = {
 type StoredConversation = Omit<Conversation, 'messages'> & {
   messages: (Omit<Message, 'at'> & { at: string })[];
 };
-
-const HISTORY_KEY = 'oasis.linux.chat.history';
 
 const SUGGESTIONS = [
   'Mon CPU est bloque a 100%, que faire ?',
@@ -70,9 +69,9 @@ function buildTitle(text: string) {
   return text.length > 30 ? `${text.slice(0, 30)}...` : text;
 }
 
-function loadHistory(): Conversation[] {
+function loadHistory(historyKey: string): Conversation[] {
   try {
-    const raw = localStorage.getItem(HISTORY_KEY);
+    const raw = localStorage.getItem(historyKey);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as StoredConversation[];
     return parsed.map((conversation) => ({
@@ -87,7 +86,7 @@ function loadHistory(): Conversation[] {
   }
 }
 
-function saveHistory(conversations: Conversation[]) {
+function saveHistory(historyKey: string, conversations: Conversation[]) {
   const payload: StoredConversation[] = conversations.slice(0, 12).map((conversation) => ({
     ...conversation,
     messages: conversation.messages.map((message) => ({
@@ -95,20 +94,25 @@ function saveHistory(conversations: Conversation[]) {
       at: message.at.toISOString(),
     })),
   }));
-  localStorage.setItem(HISTORY_KEY, JSON.stringify(payload));
+  localStorage.setItem(historyKey, JSON.stringify(payload));
 }
 
 export default function ChatPage() {
   const { user } = useAuth();
-  const [conversations, setConversations] = useState<Conversation[]>(() => loadHistory());
-  const [activeId, setActiveId] = useState<string | null>(() => loadHistory()[0]?.id ?? null);
+  const workspace = useWorkspaceBase();
+  const isAdmin = workspace === 'admin';
+  const historyKey = `oasis.${workspace}.chat.history`;
+
+  const [conversations, setConversations] = useState<Conversation[]>(() => loadHistory(historyKey));
+  const [activeId, setActiveId] = useState<string | null>(() => loadHistory(historyKey)[0]?.id ?? null);
   const [draft, setDraft] = useState('');
   const [thinking, setThinking] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const activeConversation = conversations.find((conversation) => conversation.id === activeId) ?? null;
   const messages = activeConversation?.messages ?? [];
 
-  const initials = (user?.full_name || 'Linux Engineer')
+  const defaultName = isAdmin ? 'Administrator' : 'Linux Engineer';
+  const initials = (user?.full_name || defaultName)
     .split(' ')
     .slice(0, 2)
     .map((part) => part.charAt(0).toUpperCase())
@@ -119,8 +123,8 @@ export default function ChatPage() {
   }, [messages, thinking]);
 
   useEffect(() => {
-    saveHistory(conversations);
-  }, [conversations]);
+    saveHistory(historyKey, conversations);
+  }, [historyKey, conversations]);
 
   function startNewConversation() {
     setActiveId(null);
@@ -181,8 +185,8 @@ export default function ChatPage() {
           failed: true,
           text:
             caught instanceof Error
-              ? `I could not reach the Linux persona just now: ${caught.message}`
-              : 'I could not reach the Linux persona just now.',
+              ? `I could not reach the assistant just now: ${caught.message}`
+              : 'I could not reach the assistant just now.',
         },
       ]);
     } finally {
@@ -235,9 +239,13 @@ export default function ChatPage() {
         <header className="mb-4 flex items-center gap-3">
           <Logo size={34} />
           <div className="min-w-0">
-            <h1 className="text-[18px] font-semibold tracking-tight text-ink-900">OASIS Linux Assistant</h1>
+            <h1 className="text-[18px] font-semibold tracking-tight text-ink-900">
+              {isAdmin ? 'OASIS Assistant' : 'OASIS Linux Assistant'}
+            </h1>
             <p className="text-[13px] text-ink-500">
-              Your Linux troubleshooting persona powered by Groq and RAG
+              {isAdmin
+                ? 'Ask about incidents and operations across the platform, powered by Groq and RAG.'
+                : 'Your Linux troubleshooting persona powered by Groq and RAG'}
             </p>
           </div>
         </header>
@@ -250,10 +258,10 @@ export default function ChatPage() {
                 <Sparkles className="h-5 w-5" />
               </span>
               <h2 className="mt-4 text-[15px] font-semibold text-ink-900">
-                Ask me anything about Linux incidents
+                {isAdmin ? 'Ask me anything about platform operations' : 'Ask me anything about Linux incidents'}
               </h2>
               <p className="mt-1.5 text-[13px] leading-relaxed text-ink-500">
-                I can help with CPU, RAM, disk, services and network diagnostics, and use the Linux knowledge base when it has a relevant procedure.
+                I can help with CPU, RAM, disk, services and network diagnostics, and use the knowledge base when it has a relevant procedure.
               </p>
             </div>
           )}
@@ -340,7 +348,7 @@ export default function ChatPage() {
                 }
               }}
               rows={1}
-              placeholder="Ask OASIS about Linux troubleshooting..."
+              placeholder={isAdmin ? 'Ask OASIS about platform operations...' : 'Ask OASIS about Linux troubleshooting...'}
               className="max-h-32 min-h-[44px] flex-1 resize-none rounded-xl border border-line bg-canvas px-4 py-3 text-[14px] text-ink-900 placeholder:text-ink-400 focus:border-brand-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-100"
             />
             <button

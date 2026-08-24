@@ -19,7 +19,14 @@ function useDismissOnOutsideClick(onDismiss: () => void) {
   return ref;
 }
 
-export function Topbar({ onOpenMenu }: { onOpenMenu: () => void }) {
+export function Topbar({
+  onOpenMenu,
+  basePath = '/linux',
+}: {
+  onOpenMenu: () => void;
+  /** '/linux' ou '/admin' - determine ou pointent les liens internes de la Topbar. */
+  basePath?: string;
+}) {
   const { user, signOut } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -55,9 +62,9 @@ export function Topbar({ onOpenMenu }: { onOpenMenu: () => void }) {
     event.preventDefault();
     const value = query.trim().toLowerCase();
     if (!value) return;
-    if (value.includes('rapport') || value.includes('report') || value.includes('pdf')) navigate('/linux/reports');
-    else if (value.includes('chat') || value.includes('ai') || value.includes('commande')) navigate('/linux/chat');
-    else navigate('/linux/incidents');
+    if (value.includes('rapport') || value.includes('report') || value.includes('pdf')) navigate(`${basePath}/reports`);
+    else if (value.includes('chat') || value.includes('ai') || value.includes('commande')) navigate(`${basePath}/chat`);
+    else navigate(`${basePath}/incidents`);
     setQuery('');
   }
 
@@ -73,18 +80,18 @@ export function Topbar({ onOpenMenu }: { onOpenMenu: () => void }) {
           type="search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search Linux incidents, commands, runbooks..."
+          placeholder={basePath === '/admin' ? 'Search incidents, users, audit logs...' : 'Search Linux incidents, commands, runbooks...'}
           className="h-10 w-full rounded-lg border border-line bg-canvas pl-9 pr-12 text-sm text-ink-900 placeholder:text-ink-400 focus:border-brand-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-100"
         />
         <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-medium text-ink-400">Enter</span>
       </form>
 
       <div className="ml-auto flex items-center gap-2">
-        <Link to="/linux/chat" className="focus-ring hidden h-10 items-center gap-2 rounded-lg bg-brand-500 px-4 text-[13px] font-semibold text-white shadow-sm transition-colors hover:bg-brand-600 sm:inline-flex">
+        <Link to={`${basePath}/chat`} className="focus-ring hidden h-10 items-center gap-2 rounded-lg bg-brand-500 px-4 text-[13px] font-semibold text-white shadow-sm transition-colors hover:bg-brand-600 sm:inline-flex">
           <Plus className="h-4 w-4" />
           New AI Check
         </Link>
-        <Link to="/linux/dashboard" aria-label="Dashboard" className="focus-ring rounded-lg p-2.5 text-ink-500 transition-colors hover:bg-slate-100 hover:text-ink-900">
+        <Link to={`${basePath}/dashboard`} aria-label="Dashboard" className="focus-ring rounded-lg p-2.5 text-ink-500 transition-colors hover:bg-slate-100 hover:text-ink-900">
           <Grid3X3 className="h-[18px] w-[18px]" />
         </Link>
         <div className="relative" ref={notificationsRef}>
@@ -114,7 +121,7 @@ export function Topbar({ onOpenMenu }: { onOpenMenu: () => void }) {
                 <button
                   onClick={() => {
                     setNotificationsOpen(false);
-                    navigate('/linux/incidents');
+                    navigate(`${basePath}/incidents`);
                   }}
                   className="text-[12px] font-semibold text-brand-600 hover:text-brand-700"
                 >
@@ -130,7 +137,7 @@ export function Topbar({ onOpenMenu }: { onOpenMenu: () => void }) {
                       key={incident.id}
                       onClick={() => {
                         setNotificationsOpen(false);
-                        navigate('/linux/incidents');
+                        navigate(`${basePath}/incidents`);
                       }}
                       className="flex w-full gap-3 px-4 py-3 text-left transition-colors hover:bg-slate-50"
                     >
@@ -151,7 +158,7 @@ export function Topbar({ onOpenMenu }: { onOpenMenu: () => void }) {
             </div>
           )}
         </div>
-        <Link to="/linux/chat" aria-label="Help" className="focus-ring rounded-lg p-2.5 text-ink-500 transition-colors hover:bg-slate-100 hover:text-ink-900">
+        <Link to={`${basePath}/chat`} aria-label="Help" className="focus-ring rounded-lg p-2.5 text-ink-500 transition-colors hover:bg-slate-100 hover:text-ink-900">
           <CircleHelp className="h-[18px] w-[18px]" />
         </Link>
 
@@ -176,7 +183,7 @@ export function Topbar({ onOpenMenu }: { onOpenMenu: () => void }) {
                 <p className="truncate text-[13px] font-medium text-ink-900">{displayName}</p>
                 <p className="truncate text-[12px] text-ink-500">{user?.email}</p>
               </div>
-              <Link to="/linux/settings" onClick={() => setMenuOpen(false)} className="flex items-center gap-2.5 px-3 py-2 text-[13px] text-ink-700 hover:bg-slate-50">
+              <Link to={`${basePath}/settings`} onClick={() => setMenuOpen(false)} className="flex items-center gap-2.5 px-3 py-2 text-[13px] text-ink-700 hover:bg-slate-50">
                 <Settings className="h-4 w-4 text-ink-400" />
                 Settings
               </Link>

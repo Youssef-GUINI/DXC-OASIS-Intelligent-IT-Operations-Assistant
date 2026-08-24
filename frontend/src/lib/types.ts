@@ -209,3 +209,24 @@ export type AccessRequest = {
   created_at: string;
   reviewed_at: string | null;
 };
+
+export type AdminUser = {
+  id: number;
+  email: string;
+  full_name: string;
+  role: string;
+};
+
+export type AdminRole = {
+  id: number;
+  name: string;
+};
+
+export type AuditLog = {
+  id: number;
+  user_id: number | null;
+  action: string;
+  resource: string | null;
+  details: Record<string, unknown> | null;
+  timestamp: string;
+};

@@ -2,7 +2,6 @@ import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Activity,
-  AlertTriangle,
   ArrowUp,
   Bot,
   CheckCircle2,
@@ -33,6 +32,7 @@ import { MarkdownMessage } from '@/components/ui/MarkdownMessage';
 import { cn } from '@/lib/cn';
 import { formatRelativeTime, greeting } from '@/lib/format';
 import { useResource } from '@/lib/useResource';
+import { useWorkspaceBase } from '@/lib/workspace';
 import type { LinuxIncidentApi, LinuxKPIs } from '@/lib/types';
 
 type TrendRange = 'Daily' | 'Weekly' | 'Monthly';
@@ -48,13 +48,13 @@ const trendByRange: Record<TrendRange, { day: string; checks: number; success: n
     { day: '18:00', checks: 360, success: 90 },
   ],
   Weekly: [
-  { day: 'Mon', checks: 420, success: 84 },
-  { day: 'Tue', checks: 520, success: 89 },
-  { day: 'Wed', checks: 760, success: 86 },
-  { day: 'Thu', checks: 1180, success: 93 },
-  { day: 'Fri', checks: 920, success: 90 },
-  { day: 'Sat', checks: 820, success: 87 },
-  { day: 'Sun', checks: 1120, success: 94 },
+    { day: 'Mon', checks: 420, success: 84 },
+    { day: 'Tue', checks: 520, success: 89 },
+    { day: 'Wed', checks: 760, success: 86 },
+    { day: 'Thu', checks: 1180, success: 93 },
+    { day: 'Fri', checks: 920, success: 90 },
+    { day: 'Sat', checks: 820, success: 87 },
+    { day: 'Sun', checks: 1120, success: 94 },
   ],
   Monthly: [
     { day: 'W1', checks: 2100, success: 87 },
@@ -100,12 +100,14 @@ type ActivityItem = {
   tone: 'brand' | 'ok' | 'warn';
 };
 
-const fallbackKpis: KpiItem[] = [
-  { label: 'Linux Checks', value: '24', delta: '+12.5%', caption: 'vs last 7 days', icon: TerminalSquare, tone: 'brand', spark: [12, 13, 12, 15, 18, 16, 19] },
-  { label: 'Tasks Completed', value: '1,429', delta: '+18.3%', caption: 'vs last 7 days', icon: CheckCircle2, tone: 'ok', spark: [40, 45, 42, 52, 57, 61, 59] },
-  { label: 'Success Rate', value: '96.7%', delta: '+2.4%', caption: 'vs last 7 days', icon: Sparkles, tone: 'brand', spark: [91, 93, 92, 95, 96, 94, 97] },
-  { label: 'Time Saved', value: '320h', delta: '+22.1%', caption: 'vs last 7 days', icon: Activity, tone: 'warn', spark: [18, 21, 24, 22, 28, 31, 34] },
-] as KpiItem[];
+function buildFallbackKpis(isAdmin: boolean): KpiItem[] {
+  return [
+    { label: isAdmin ? 'Platform Checks' : 'Linux Checks', value: '24', delta: '+12.5%', caption: 'vs last 7 days', icon: TerminalSquare, tone: 'brand', spark: [12, 13, 12, 15, 18, 16, 19] },
+    { label: 'Tasks Completed', value: '1,429', delta: '+18.3%', caption: 'vs last 7 days', icon: CheckCircle2, tone: 'ok', spark: [40, 45, 42, 52, 57, 61, 59] },
+    { label: 'Success Rate', value: '96.7%', delta: '+2.4%', caption: 'vs last 7 days', icon: Sparkles, tone: 'brand', spark: [91, 93, 92, 95, 96, 94, 97] },
+    { label: 'Time Saved', value: '320h', delta: '+22.1%', caption: 'vs last 7 days', icon: Activity, tone: 'warn', spark: [18, 21, 24, 22, 28, 31, 34] },
+  ];
+}
 
 function MiniSparkline({ values, tone }: { values: number[]; tone: string }) {
   const min = Math.min(...values);
@@ -154,9 +156,10 @@ function KpiTile({ item }: { item: KpiItem }) {
   );
 }
 
-function AssistantPanel() {
+function AssistantPanel({ isAdmin }: { isAdmin: boolean }) {
   const [draft, setDraft] = useState('');
-  const [answer, setAnswer] = useState('Hi Linux Engineer. How can I help you troubleshoot today?');
+  const defaultName = isAdmin ? 'Administrator' : 'Linux Engineer';
+  const [answer, setAnswer] = useState(`Hi ${defaultName}. How can I help you troubleshoot today?`);
   const [loading, setLoading] = useState(false);
 
   async function askAssistant(message: string) {
@@ -168,7 +171,7 @@ function AssistantPanel() {
       const response = await api.post<{ response: string }>('/linux/chat', { message: trimmed });
       setAnswer(response.response);
     } catch (error) {
-      setAnswer(error instanceof Error ? error.message : 'Unable to reach the Linux persona.');
+      setAnswer(error instanceof Error ? error.message : 'Unable to reach the assistant.');
     } finally {
       setLoading(false);
     }
@@ -179,12 +182,19 @@ function AssistantPanel() {
     void askAssistant(draft);
   }
 
-  const quickActions = [
-    ['Performance Insights', 'Get CPU/RAM guidance', 'Analyse les performances Linux actuelles et donne les actions recommandees.'],
-    ['Optimize Workflows', 'Improve incident response', 'Propose un workflow simple pour traiter les incidents Linux ouverts.'],
-    ['Create Linux Check', 'Ask the Linux persona', 'Quels checks Linux dois-je lancer maintenant pour CPU, RAM, disque et services ?'],
-    ['View Recommendations', 'See smart suggestions', 'Donne-moi les recommandations prioritaires pour stabiliser le serveur Linux.'],
-  ];
+  const quickActions = isAdmin
+    ? [
+        ['Performance Insights', 'Get CPU/RAM guidance', 'Analyse les performances actuelles et donne les actions recommandees.'],
+        ['Optimize Workflows', 'Improve incident response', 'Propose un workflow simple pour traiter les incidents ouverts.'],
+        ['Run Platform Check', 'Ask the OASIS assistant', 'Quels checks dois-je lancer maintenant pour CPU, RAM, disque et services ?'],
+        ['View Recommendations', 'See smart suggestions', 'Donne-moi les recommandations prioritaires pour stabiliser la plateforme.'],
+      ]
+    : [
+        ['Performance Insights', 'Get CPU/RAM guidance', 'Analyse les performances Linux actuelles et donne les actions recommandees.'],
+        ['Optimize Workflows', 'Improve incident response', 'Propose un workflow simple pour traiter les incidents Linux ouverts.'],
+        ['Create Linux Check', 'Ask the Linux persona', 'Quels checks Linux dois-je lancer maintenant pour CPU, RAM, disque et services ?'],
+        ['View Recommendations', 'See smart suggestions', 'Donne-moi les recommandations prioritaires pour stabiliser le serveur Linux.'],
+      ];
 
   return (
     <aside className="flex max-h-none flex-col rounded-2xl border border-line bg-white p-5 shadow-card xl:sticky xl:top-20 xl:max-h-[calc(100vh-6rem)]">
@@ -194,7 +204,7 @@ function AssistantPanel() {
           AI Agent Assistant
         </h2>
         <button
-          onClick={() => void askAssistant('Donne-moi un resume rapide des actions prioritaires du dashboard Linux.')}
+          onClick={() => void askAssistant('Donne-moi un resume rapide des actions prioritaires du dashboard.')}
           disabled={loading}
           aria-label="Ask dashboard summary"
           className="rounded-lg p-1.5 text-ink-400 hover:bg-slate-100 disabled:opacity-50"
@@ -204,7 +214,7 @@ function AssistantPanel() {
       </div>
 
       <div className="mt-5 rounded-xl bg-brand-50 p-4">
-        <p className="text-[13px] font-medium text-ink-900">Hi Linux Engineer. I am your AI assistant.</p>
+        <p className="text-[13px] font-medium text-ink-900">Hi {defaultName}. I am your AI assistant.</p>
         <p className="mt-1 text-[13px] leading-relaxed text-ink-500">
           Ask here directly from the dashboard.
         </p>
@@ -279,8 +289,8 @@ function percent(part: number, total: number) {
   return Math.round((part / total) * 100);
 }
 
-function buildKpis(kpis?: LinuxKPIs): KpiItem[] {
-  if (!kpis) return fallbackKpis;
+function buildKpis(kpis: LinuxKPIs | undefined, isAdmin: boolean): KpiItem[] {
+  if (!kpis) return buildFallbackKpis(isAdmin);
   const successRate = percent(kpis.resolved_incidents, kpis.total_incidents);
   const avg = kpis.avg_resolution_minutes;
 
@@ -307,7 +317,7 @@ function buildKpis(kpis?: LinuxKPIs): KpiItem[] {
       label: 'Success Rate',
       value: `${successRate}%`,
       delta: '+2.4%',
-      caption: 'from Linux history',
+      caption: isAdmin ? 'from platform history' : 'from Linux history',
       icon: Sparkles,
       tone: 'brand',
       spark: [80, 83, 86, 88, 90, 92, Math.max(1, successRate)],
@@ -356,6 +366,8 @@ function buildActivities(incidents?: LinuxIncidentApi[]): ActivityItem[] {
 }
 
 export default function DashboardPage() {
+  const workspace = useWorkspaceBase();
+  const isAdmin = workspace === 'admin';
   const [range, setRange] = useState<TrendRange>('Weekly');
   const [visibleMetrics, setVisibleMetrics] = useState<Record<TrendMetric, boolean>>({
     checks: true,
@@ -364,7 +376,7 @@ export default function DashboardPage() {
   const [selectedArea, setSelectedArea] = useState<string | null>(null);
   const { data: kpiData } = useResource<LinuxKPIs>(() => api.get<LinuxKPIs>('/linux/dashboard/kpis'), []);
   const { data: incidentData } = useResource<LinuxIncidentApi[]>(() => api.get<LinuxIncidentApi[]>('/linux/incidents'), []);
-  const kpiItems = buildKpis(kpiData);
+  const kpiItems = buildKpis(kpiData, isAdmin);
   const checksByArea = buildChecksByArea(kpiData);
   const activities = buildActivities(incidentData);
   const totalForDonut = kpiData ? kpiData.total_incidents : 1429;
@@ -379,15 +391,23 @@ export default function DashboardPage() {
         <header className="mb-5 flex flex-wrap items-start justify-between gap-4">
           <div>
             <h1 className="text-[22px] font-semibold tracking-tight text-ink-900">
-              {greeting()}, Linux Engineer
+              {greeting()}, {isAdmin ? 'Administrator' : 'Linux Engineer'}
             </h1>
             <p className="mt-1 text-sm text-ink-500">
-              Here is what is happening with your Linux persona today.
+              {isAdmin
+                ? 'Here is what is happening across the platform today.'
+                : 'Here is what is happening with your Linux persona today.'}
             </p>
           </div>
-          <Link to="/linux/reports" className="rounded-lg border border-line bg-white px-3 py-2 text-[12px] font-semibold text-ink-600 shadow-sm hover:bg-slate-50">
-            Aug 19 - Aug 25, 2026
-          </Link>
+          {isAdmin ? (
+            <span className="rounded-lg border border-line bg-white px-3 py-2 text-[12px] font-semibold text-ink-600 shadow-sm">
+              Aug 19 - Aug 25, 2026
+            </span>
+          ) : (
+            <Link to="/linux/reports" className="rounded-lg border border-line bg-white px-3 py-2 text-[12px] font-semibold text-ink-600 shadow-sm hover:bg-slate-50">
+              Aug 19 - Aug 25, 2026
+            </Link>
+          )}
         </header>
 
         <div className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-4">
@@ -550,7 +570,7 @@ export default function DashboardPage() {
         <section className="mt-5 rounded-xl border border-line bg-white p-5 shadow-card">
           <div className="flex items-center justify-between">
             <h2 className="text-[15px] font-semibold text-ink-900">Recent Agent Activity</h2>
-            <Link to="/linux/incidents" className="text-[13px] font-medium text-brand-600 hover:text-brand-700">View all</Link>
+            <Link to={`/${workspace}/incidents`} className="text-[13px] font-medium text-brand-600 hover:text-brand-700">View all</Link>
           </div>
           <ul className="mt-4 divide-y divide-line">
             {activities.map((item) => {
@@ -580,7 +600,7 @@ export default function DashboardPage() {
         </section>
       </section>
 
-      <AssistantPanel />
+      <AssistantPanel isAdmin={isAdmin} />
     </div>
   );
 }
