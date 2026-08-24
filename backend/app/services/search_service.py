@@ -22,7 +22,7 @@ from datetime import datetime
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from app.models.action_request import ActionRequest
+from app.models.service_request import RequestStatus, ServiceRequest
 from app.models.chat_message import ChatConversation, ChatMessage
 from app.models.incident_ticket import IncidentTicket
 from app.models.knowledge_document import KnowledgeDocument
@@ -102,17 +102,27 @@ def _incidents(db: Session, query: str, limit: int) -> list[SearchHit]:
 
 
 def _requests(db: Session, user_id: int, query: str, limit: int) -> list[SearchHit]:
+    """
+    Demandes echangees avec l'administrateur.
+
+    Les deux sens sont couverts : on cherche aussi bien dans ce que
+    l'utilisateur a envoye que dans ce qu'il a recu, puisque la page Requests
+    affiche les deux.
+    """
     pattern = _pattern(query)
     requests = (
-        db.query(ActionRequest)
+        db.query(ServiceRequest)
         .filter(
-            ActionRequest.requested_by == user_id,
             or_(
-                ActionRequest.action_type.ilike(pattern, escape="\\"),
-                ActionRequest.target.ilike(pattern, escape="\\"),
+                ServiceRequest.created_by == user_id,
+                ServiceRequest.assigned_to == user_id,
+            ),
+            or_(
+                ServiceRequest.title.ilike(pattern, escape="\\"),
+                ServiceRequest.description.ilike(pattern, escape="\\"),
             ),
         )
-        .order_by(ActionRequest.created_at.desc())
+        .order_by(ServiceRequest.created_at.desc())
         .limit(limit)
         .all()
     )
@@ -120,8 +130,14 @@ def _requests(db: Session, user_id: int, query: str, limit: int) -> list[SearchH
         SearchHit(
             type="request",
             id=str(request.id),
-            title=f"{request.action_type.replace('_', ' ').capitalize()} · {request.target}",
-            subtitle=request.status.value,
+            title=request.title,
+            # « refused » plutot que « rejected » : meme mot que la page
+            # Requests, pour qu'un resultat de recherche ne semble pas parler
+            # d'un autre etat.
+            subtitle=(
+                "refused" if request.status == RequestStatus.REJECTED
+                else request.status.value.replace("_", " ")
+            ),
             timestamp=request.created_at,
         )
         for request in requests

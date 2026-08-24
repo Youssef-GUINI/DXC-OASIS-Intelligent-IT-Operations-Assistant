@@ -20,6 +20,7 @@ PostgreSQL de plus n'apporterait rien.
 """
 
 from sqlalchemy import BigInteger, Column, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
 from app.database.base import Base
@@ -42,6 +43,16 @@ class ChatConversation(Base):
     # libellé dans la liste latérale serait impossible à retrouver.
     title = Column(String(TITLE_MAX_LENGTH), nullable=False)
 
+    # Fil d'investigation d'un incident : renseigné quand la conversation a
+    # été ouverte depuis un ticket. C'est ce qui distingue une investigation
+    # d'une question ordinaire -- l'agent reçoit alors le contexte du ticket,
+    # et le drawer rouvre le fil au lieu d'en créer un second.
+    incident_ticket_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("incident_tickets.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     # Avancé à chaque tour enregistré : c'est l'ordre de la liste latérale, la
@@ -49,6 +60,7 @@ class ChatConversation(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     user = relationship("User")
+    incident_ticket = relationship("IncidentTicket")
     messages = relationship(
         "ChatMessage",
         back_populates="conversation",
@@ -77,3 +89,11 @@ class ChatMessage(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     conversation = relationship("ChatConversation", back_populates="messages")
+
+    # Actions proposées par ce message et pas encore exécutées. Le lien est
+    # porté par action_requests : un même tour peut en proposer plusieurs.
+    action_requests = relationship(
+        "ActionRequest",
+        back_populates="chat_message",
+        order_by="ActionRequest.created_at",
+    )

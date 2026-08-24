@@ -20,7 +20,11 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.mcp.storage.tools.health import get_storage_health
+from app.mcp.storage.tools.health import (
+    describe_interval,
+    get_storage_health,
+    stale_after_hours,
+)
 from app.models.action_request import ActionRequest
 from app.models.incident_ticket import IncidentSeverity, IncidentStatus, IncidentTicket
 from app.services import metrics_service
@@ -117,6 +121,7 @@ def _build_backups(raw_backups: dict) -> dict:
             "status": status,
             "last_run": job.get("last_run"),
             "hours_since_last_success": job.get("hours_since_last_success", 0),
+            "expected_interval_hours": job.get("expected_interval_hours"),
         })
 
     return {
@@ -417,16 +422,30 @@ def get_insights(db: Session) -> list[dict]:
             "action_target": "/storage/chat",
         })
 
-    stale_jobs = [job for job in overview["backups"]["jobs"] if job["hours_since_last_success"] >= 24]
+    # Le retard se mesure contre la cadence du timer, pas contre une durée
+    # fixe : un job hebdomadaire vieux de quatre jours est à l'heure. Le seuil
+    # vient de health.py, pour que l'insight et l'alerte disent la même chose.
+    stale_jobs = [
+        job
+        for job in overview["backups"]["jobs"]
+        if job["hours_since_last_success"] >= stale_after_hours(job)
+    ]
     if stale_jobs:
-        oldest = max(stale_jobs, key=lambda job: job["hours_since_last_success"])
+        # Le plus en retard *par rapport à sa propre cadence* : un job
+        # quotidien oublié depuis trois jours passe avant un hebdomadaire de
+        # huit jours, même si celui-ci affiche plus d'heures.
+        latest = max(
+            stale_jobs,
+            key=lambda job: job["hours_since_last_success"] / stale_after_hours(job),
+        )
+        cadence = describe_interval(latest["expected_interval_hours"])
         insights.append({
             "id": "backups-stale",
             "priority": "medium",
-            "title": "One of your backups hasn't succeeded in over a day",
+            "title": f"{len(stale_jobs)} backup job{'s are' if len(stale_jobs) > 1 else ' is'} overdue",
             "detail": (
-                f"{oldest['job_id']} last completed {oldest['hours_since_last_success']} hours ago, "
-                "so its restore point is getting old."
+                f"{latest['job_id']} is supposed to run {cadence}, but its last success "
+                f"was {latest['hours_since_last_success']} hours ago."
             ),
             "action_label": "View backup health",
             "action_target": "/storage/dashboard",

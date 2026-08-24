@@ -1,0 +1,767 @@
+% =====================================================================
+%  DXC OASIS -- Intelligent IT Operations Assistant
+%  Analyse complete du projet (architecture, backend, base de donnees,
+%  workflows, MCP, actions sensibles, technologies, fichier par fichier)
+%
+%  Compilation :  pdflatex analyse-oasis.tex   (x2 pour la table des matieres)
+%  Aucune dependance exotique : article + tikz + listings + booktabs.
+% =====================================================================
+
+\documentclass[11pt,a4paper]{report}
+
+% ---------------------------------------------------------------- encodage
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage{lmodern}
+\usepackage{microtype}
+
+% ---------------------------------------------------------------- maths
+% amsmath : \text{} ; amssymb : \varnothing
+\usepackage{amsmath}
+\usepackage{amssymb}
+
+% ---------------------------------------------------------------- mise en page
+\usepackage[a4paper,margin=2.3cm,headheight=14pt]{geometry}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{setspace}
+\onehalfspacing
+
+% ---------------------------------------------------------------- tableaux
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{multirow}
+
+% ---------------------------------------------------------------- couleurs / boites
+\usepackage{xcolor}
+\usepackage{mdframed}
+
+% ---------------------------------------------------------------- code
+\usepackage{listings}
+
+% ---------------------------------------------------------------- schemas
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,fit,backgrounds,calc}
+
+% ---------------------------------------------------------------- palette
+\definecolor{oasisblue}{HTML}{1D4ED8}
+\definecolor{oasisdark}{HTML}{0F172A}
+\definecolor{oasisgrey}{HTML}{64748B}
+\definecolor{oasisline}{HTML}{E2E8F0}
+\definecolor{oasisbg}{HTML}{F8FAFC}
+\definecolor{oasisred}{HTML}{DC2626}
+\definecolor{oasisgreen}{HTML}{059669}
+\definecolor{oasisamber}{HTML}{D97706}
+\definecolor{oasisviolet}{HTML}{7C3AED}
+
+% ---------------------------------------------------------------- liens
+% (chargé APRÈS la palette : hyperref a besoin des couleurs déjà définies)
+\usepackage{hyperref}
+\hypersetup{
+  colorlinks=true,
+  linkcolor=oasisblue,
+  urlcolor=oasisblue,
+  citecolor=oasisblue,
+  pdftitle={DXC OASIS -- Analyse complete du projet},
+  pdfauthor={Kawthar Khayet}
+}
+
+% ---------------------------------------------------------------- styles titres
+\titleformat{\chapter}[display]
+  {\normalfont\huge\bfseries\color{oasisdark}}
+  {\color{oasisblue}\MakeUppercase{\chaptertitlename} \thechapter}{10pt}{\Huge}
+\titleformat{\section}
+  {\normalfont\Large\bfseries\color{oasisblue}}{\thesection}{1em}{}
+\titleformat{\subsection}
+  {\normalfont\large\bfseries\color{oasisdark}}{\thesubsection}{1em}{}
+\titleformat{\subsubsection}
+  {\normalfont\normalsize\bfseries\color{oasisgrey}}{\thesubsubsection}{1em}{}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\color{oasisgrey}DXC OASIS --- Analyse complète du projet}
+\fancyhead[R]{\small\color{oasisgrey}\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% ---------------------------------------------------------------- listings
+\lstdefinestyle{oasis}{
+  basicstyle=\ttfamily\scriptsize,
+  keywordstyle=\color{oasisblue}\bfseries,
+  commentstyle=\color{oasisgreen}\itshape,
+  stringstyle=\color{oasisamber},
+  numberstyle=\tiny\color{oasisgrey},
+  numbers=left,
+  numbersep=7pt,
+  breaklines=true,
+  breakatwhitespace=false,
+  showstringspaces=false,
+  frame=single,
+  rulecolor=\color{oasisline},
+  backgroundcolor=\color{oasisbg},
+  captionpos=b,
+  tabsize=2,
+  extendedchars=true,
+  literate={é}{{\'e}}1 {è}{{\`e}}1 {à}{{\`a}}1 {ê}{{\^e}}1 {ç}{{\c c}}1
+           {É}{{\'E}}1 {î}{{\^i}}1 {ô}{{\^o}}1 {û}{{\^u}}1 {ù}{{\`u}}1
+           {â}{{\^a}}1 {ë}{{\"e}}1 {ï}{{\"i}}1 {œ}{{oe}}2 {«}{{\guillemotleft}}1
+           {»}{{\guillemotright}}1 {–}{{--}}1 {—}{{---}}1 {…}{{\ldots}}1
+}
+\lstset{style=oasis}
+
+% ---------------------------------------------------------------- boites
+\newmdenv[
+  linecolor=oasisblue,linewidth=2pt,topline=false,bottomline=false,rightline=false,
+  backgroundcolor=oasisbg,skipabove=8pt,skipbelow=8pt,
+  innerleftmargin=10pt,innerrightmargin=10pt,innertopmargin=8pt,innerbottommargin=8pt
+]{infobox}
+
+\newmdenv[
+  linecolor=oasisred,linewidth=2pt,topline=false,bottomline=false,rightline=false,
+  backgroundcolor=oasisbg,skipabove=8pt,skipbelow=8pt,
+  innerleftmargin=10pt,innerrightmargin=10pt,innertopmargin=8pt,innerbottommargin=8pt
+]{warnbox}
+
+\newmdenv[
+  linecolor=oasisgreen,linewidth=2pt,topline=false,bottomline=false,rightline=false,
+  backgroundcolor=oasisbg,skipabove=8pt,skipbelow=8pt,
+  innerleftmargin=10pt,innerrightmargin=10pt,innertopmargin=8pt,innerbottommargin=8pt
+]{keybox}
+
+% ---------------------------------------------------------------- raccourcis
+\newcommand{\file}[1]{\texttt{\small #1}}
+\newcommand{\fn}[1]{\texttt{\small\textcolor{oasisviolet}{#1}}}
+\newcommand{\cls}[1]{\texttt{\small\textcolor{oasisblue}{#1}}}
+\newcommand{\tbl}[1]{\texttt{\small\textcolor{oasisamber}{#1}}}
+\newcommand{\route}[1]{\texttt{\small\textcolor{oasisgreen}{#1}}}
+\newcommand{\arrowto}{\ensuremath{\rightarrow}}
+
+% styles TikZ communs
+\tikzset{
+  box/.style={rectangle,rounded corners=3pt,draw=oasisline,line width=1pt,
+              fill=white,minimum height=9mm,minimum width=26mm,align=center,
+              font=\scriptsize\sffamily},
+  bluebox/.style={box,draw=oasisblue,fill=oasisbg},
+  redbox/.style={box,draw=oasisred,fill=white},
+  greenbox/.style={box,draw=oasisgreen,fill=white},
+  ambox/.style={box,draw=oasisamber,fill=white},
+  vibox/.style={box,draw=oasisviolet,fill=white},
+  flow/.style={-{Stealth[length=2.4mm]},draw=oasisgrey,line width=0.8pt,font=\tiny\sffamily},
+  flowb/.style={flow,draw=oasisblue},
+  flowr/.style={flow,draw=oasisred},
+  lbl/.style={font=\tiny\sffamily\itshape,text=oasisgrey,align=center}
+}
+
+% =====================================================================
+\begin{document}
+
+% ---------------------------------------------------------------- page de titre
+\begin{titlepage}
+\centering
+\vspace*{2cm}
+
+{\color{oasisblue}\rule{\textwidth}{2pt}}\\[6mm]
+
+{\Huge\bfseries\color{oasisdark} DXC OASIS}\\[3mm]
+{\LARGE\color{oasisgrey} Intelligent IT Operations Assistant}\\[6mm]
+
+{\color{oasisblue}\rule{\textwidth}{2pt}}\\[16mm]
+
+{\Large\bfseries Analyse complète du projet}\\[4mm]
+{\large\color{oasisgrey}
+Architecture · Arborescence · Backend · Base de données\\
+Workflows métier · MCP · Actions sensibles · Technologies\\
+Analyse fichier par fichier}\\[20mm]
+
+\begin{minipage}{0.8\textwidth}
+\centering\small\color{oasisgrey}
+Document d'analyse technique construit \emph{exclusivement} à partir du code
+source réel du dépôt. Chaque affirmation renvoie à un fichier, une fonction ou
+une ligne existante. Ce qui n'existe pas dans le code est signalé comme tel,
+jamais complété par hypothèse.
+\end{minipage}
+
+\vfill
+
+\begin{tabular}{rl}
+\textbf{Dépôt} & \file{DXC-OASIS-Intelligent-IT-Operations-Assistant}\\
+\textbf{Branche analysée} & \file{kaouthar}\\
+\textbf{Auteur} & Kawthar Khayet\\
+\textbf{Contexte} & PFA --- DXC Technology\\
+\end{tabular}
+
+\vspace{1cm}
+\end{titlepage}
+
+% ---------------------------------------------------------------- avertissement
+\chapter*{Note de méthode}
+\addcontentsline{toc}{chapter}{Note de méthode}
+
+Ce document a été rédigé après lecture intégrale du code du dépôt. Trois règles
+ont été tenues du début à la fin.
+
+\begin{keybox}
+\textbf{1. Rien n'est inventé.} Toute classe, fonction, table, route ou variable
+citée existe dans le code. Les noms sont recopiés tels quels, y compris quand
+ils sont maladroits ou incohérents.
+
+\textbf{2. Ce qui est vide est dit vide.} Plusieurs fichiers du dépôt sont
+présents mais ne contiennent aucune ligne (Dockerfiles, \file{nginx.conf},
+\file{ci.yml}, \file{orchestrator.py}, \file{permissions.py}\ldots). Ils sont
+listés au chapitre~\ref{ch:fichiers} plutôt que décrits comme s'ils
+fonctionnaient.
+
+\textbf{3. Ce qui est mort est dit mort.} Certains modules existent, compilent,
+mais ne sont importés par personne (\file{base\_persona.py},
+\file{llm\_router.py}, \file{rbac\_middleware.py}). Ils sont signalés comme
+vestiges de la V1 et non présentés comme faisant partie du chemin d'exécution.
+\end{keybox}
+
+\noindent
+Cette rigueur a un intérêt direct pour une soutenance : elle permet de répondre
+sans hésiter à la question « et ça, ça marche vraiment ? ».
+
+\tableofcontents
+\clearpage
+
+% =====================================================================
+\chapter{Vue d'ensemble de l'application}
+\label{ch:vue}
+
+% ---------------------------------------------------------------------
+\section{Quel est l'objectif de l'application ?}
+
+OASIS est un \textbf{copilote d'exploitation informatique spécialisé Storage \&
+Backup}. Il ne se contente pas de répondre à des questions : il lit l'état
+\emph{réel} d'une machine de stockage, détecte les anomalies, ouvre des tickets
+d'incident, conduit un diagnostic assisté par LLM et \textbf{propose} une
+remédiation que l'ingénieur exécute d'un clic.
+
+L'objectif se lit précisément dans quatre décisions de conception visibles dans
+le code :
+
+\begin{enumerate}
+  \item \textbf{Aucune donnée simulée.} Le commentaire d'en-tête de
+  \file{app/mcp/storage/ssh.py} l'énonce : « Aucun tool ne renvoie de données
+  inventées. Quand la VM est injoignable ou qu'une commande échoue, on remonte
+  une erreur explicite et l'interface l'affiche telle quelle plutôt que de
+  combler le vide. » Les outils exécutent réellement \texttt{df}, \texttt{lvs},
+  \texttt{systemctl}, \texttt{journalctl} et lisent \texttt{/proc/diskstats}
+  sur une VM Ubuntu par SSH.
+
+  \item \textbf{Le modèle propose, l'humain décide.} Les outils qui modifient la
+  VM sont regroupés dans \fn{REMEDIATION\_TOOLS}
+  (\file{app/mcp/storage/server.py}). Quand le LLM les appelle, l'agent
+  n'exécute rien : il enregistre une ligne \tbl{action\_requests} au statut
+  \texttt{pending}. Le seul chemin d'exécution est
+  \route{POST /storage/actions/\{id\}/confirm}.
+
+  \item \textbf{Tout est audité.} Chaque appel d'outil est écrit dans
+  \tbl{mcp\_calls} (arguments réels, résultat brut, statut, corrélation), chaque
+  requête HTTP dans \tbl{audit\_logs}, chaque étape du cycle de vie d'un
+  incident dans \tbl{incident\_ticket\_notes}.
+
+  \item \textbf{Le cycle se referme sur une vérification.} Un ticket n'est pas
+  clos parce qu'une commande s'est terminée sans erreur, mais parce que
+  l'indicateur qui l'avait ouvert est redevenu sain
+  (\file{app/services/incident\_verification.py}).
+\end{enumerate}
+
+\begin{infobox}
+\textbf{Formulation en une phrase pour la soutenance.} \emph{OASIS transforme
+une conversation en langage naturel en actions vérifiées sur une infrastructure
+de stockage réelle, sans jamais laisser le modèle de langage agir seul.}
+\end{infobox}
+
+% ---------------------------------------------------------------------
+\section{Quelle est son architecture globale ?}
+
+L'architecture réelle comporte \textbf{sept étages}, du navigateur jusqu'aux
+commandes Linux :
+
+\begin{longtable}{@{}p{2.6cm}p{4.3cm}p{7.6cm}@{}}
+\toprule
+\textbf{Étage} & \textbf{Technologie} & \textbf{Rôle exact dans le code}\\
+\midrule
+\endhead
+Interface & React 18 + Vite + Tailwind & SPA mono-espace \file{/storage}, 8 pages, JWT en \texttt{localStorage} ou \texttt{sessionStorage}\\
+API HTTP & FastAPI & 11 routeurs montés sous \route{/api/v1} dans \file{app/main.py}\\
+Sécurité & JWT HS256 + RBAC & \file{core/security.py}, \file{api/deps.py}, \file{middleware/audit\_middleware.py}\\
+Services & Modules Python & \file{app/services/}, \file{app/dashboard/kpi\_service.py}\\
+Agent & Persona Storage + Groq & \file{app/personas/storage/agent.py} : RAG + tool calling + garde-fou\\
+MCP & SDK \texttt{mcp} 2.0.0, transport stdio & Client \file{mcp/storage/client.py} \arrowto{} serveur \file{mcp/storage/tool\_server.py}\\
+Infrastructure & Paramiko / SSH & \file{mcp/storage/ssh.py} \arrowto{} VM Ubuntu (LVM, systemd, restic, MinIO)\\
+\bottomrule
+\end{longtable}
+
+\noindent
+Trois magasins de données accompagnent ces étages :
+
+\begin{itemize}
+  \item \textbf{PostgreSQL 16} --- toutes les données métier (utilisateurs,
+  incidents, actions, conversations, demandes, métriques, audit).
+  \item \textbf{ChromaDB} --- la base vectorielle du RAG, interrogée en HTTP sur
+  le port 8001 (\file{app/rag/vectorstore.py}).
+  \item \textbf{Système de fichiers} --- les documents déposés (Data Hub) et les
+  pièces jointes des demandes, sous \file{settings.upload\_dir}.
+\end{itemize}
+
+% ---------------------------------------------------------------------
+\section{Schéma d'architecture adapté au code réel}
+
+Le schéma ci-dessous ne reprend pas un diagramme générique : il suit exactement
+le chemin d'exécution d'une question posée dans le chat.
+
+\begin{figure}[h!]
+\centering
+\begin{tikzpicture}[node distance=7mm]
+
+\node[box,fill=oasisbg] (user) {Ingénieur Storage\\\tiny(navigateur)};
+\node[bluebox,below=of user] (front) {\textbf{Frontend React}\\\tiny ChatPage · IncidentsPage\\\tiny lib/api.ts (fetch + Bearer)};
+\node[bluebox,below=of front] (api) {\textbf{API FastAPI}\\\tiny /api/v1/storage/chat\\\tiny deps.get\_current\_user + require\_role};
+\node[vibox,below=of api] (agent) {\textbf{StoragePersona}\\\tiny personas/storage/agent.py\\\tiny handle\_message()};
+\node[ambox,below=of agent] (client) {\textbf{MCP Client}\\\tiny StorageMCPClient\\\tiny transport stdio};
+\node[ambox,below=of client] (server) {\textbf{MCP Server}\\\tiny tool\_server.py\\\tiny MCPServer("oasis-storage-mcp")};
+\node[greenbox,below=of server] (tool) {\textbf{Tool Python}\\\tiny get\_capacity · list\_backups\\\tiny run\_backup · restore\_from\_backup};
+\node[redbox,below=of tool] (ssh) {\textbf{SSH (paramiko)}\\\tiny mcp/storage/ssh.py};
+\node[redbox,below=of ssh] (vm) {\textbf{VM Ubuntu Storage}\\\tiny df · lvs · systemctl · journalctl\\\tiny /proc/diskstats · restic · LVM};
+
+% cote droit : dependances
+\node[box,right=22mm of agent,draw=oasisviolet] (groq) {\textbf{Groq API}\\\tiny openai/gpt-oss-120b\\\tiny tool calling};
+\node[box,right=22mm of api,draw=oasisblue] (pg) {\textbf{PostgreSQL}\\\tiny SQLAlchemy + Alembic};
+\node[box,below=8mm of groq,draw=oasisviolet] (chroma) {\textbf{ChromaDB}\\\tiny RAG storage\_kb};
+
+\draw[flowb] (user) -- node[right]{HTTPS} (front);
+\draw[flowb] (front) -- node[right]{JSON + JWT} (api);
+\draw[flowb] (api) -- node[right]{await} (agent);
+\draw[flowb] (agent) -- node[right]{call\_tool()} (client);
+\draw[flowb] (client) -- node[right]{stdio JSON-RPC} (server);
+\draw[flowb] (server) -- node[right]{invoke} (tool);
+\draw[flowr] (tool) -- node[right]{run()} (ssh);
+\draw[flowr] (ssh) -- node[right]{commande} (vm);
+
+\draw[flow,<->] (agent) -- node[above]{prompt / tool\_calls} (groq);
+\draw[flow,<->] (agent.east) to[bend right=18] node[right,pos=0.6]{retrieve} (chroma.west);
+\draw[flow,<->] (api) -- node[above]{ORM} (pg);
+
+\end{tikzpicture}
+\caption{Chemin complet d'une question du chat, tel qu'il est codé.}
+\end{figure}
+
+\clearpage
+
+\begin{keybox}
+\textbf{Formule condensée demandée, adaptée au vrai code :}
+\medskip
+
+\noindent
+\texttt{Utilisateur} \arrowto{} \texttt{React (ChatPage)} \arrowto{}
+\texttt{FastAPI /storage/chat} \arrowto{} \texttt{StoragePersona + Groq}
+\arrowto{} \texttt{StorageMCPClient (stdio)} \arrowto{}
+\texttt{MCPServer} \arrowto{} \texttt{Tool Python} \arrowto{}
+\texttt{SSH paramiko} \arrowto{} \texttt{VM Ubuntu} \arrowto{}
+\texttt{résultat JSON} \arrowto{} \texttt{Groq (reformulation)} \arrowto{}
+\texttt{ChatTurnOut} \arrowto{} \texttt{React}
+\end{keybox}
+
+% ---------------------------------------------------------------------
+\section{Une nuance essentielle : deux chemins vers les outils}
+
+Le code comporte \textbf{deux voies distinctes} pour atteindre les mêmes
+fonctions d'outil. Les confondre serait une erreur d'analyse.
+
+\begin{longtable}{@{}p{4.2cm}p{5.1cm}p{5.2cm}@{}}
+\toprule
+& \textbf{Voie MCP (asynchrone)} & \textbf{Voie directe (in-process)}\\
+\midrule
+\endhead
+Appelant & \file{personas/storage/agent.py}, \file{api/v1/actions.py}, \file{services/incident\_verification.py} & \file{dashboard/kpi\_service.py}, \file{services/incident\_watcher.py}, \file{services/metrics\_service.py}\\
+Mécanisme & Sous-processus MCP, JSON-RPC sur stdio & \texttt{import} Python classique\\
+Audit \tbl{mcp\_calls} & Oui (si \texttt{db} et \texttt{user\_id} fournis) & Non\\
+Pourquoi ? & Le LLM doit voir un catalogue d'outils décrits & Pas de LLM impliqué : lecture déterministe et rapide\\
+Exemple & \fn{mcp.call\_tool("get\_backup\_job\_status", ...)} & \fn{list\_backups()} importé depuis \file{tools/backup.py}\\
+\bottomrule
+\end{longtable}
+
+\begin{infobox}
+\textbf{Conséquence à connaître.} Le dashboard et la surveillance de fond
+n'apparaissent \emph{pas} dans \tbl{mcp\_calls}. Seuls les appels déclenchés par
+une conversation ou par une confirmation d'action y figurent --- ce qui est
+cohérent avec l'objectif de cette table : prouver qu'une réponse de l'agent
+s'appuie sur un relevé réel.
+\end{infobox}
+
+% ---------------------------------------------------------------------
+\section{Quelles sont les différentes parties du projet ?}
+
+\begin{longtable}{@{}p{2.6cm}p{3.2cm}p{8.7cm}@{}}
+\toprule
+\textbf{Partie} & \textbf{Emplacement} & \textbf{Contenu réel}\\
+\midrule
+\endhead
+Backend & \file{backend/} & Application FastAPI, 14 migrations Alembic, couche MCP, RAG, personas, services\\
+Frontend & \file{frontend/} & SPA React 18 / TypeScript / Vite / Tailwind, 8 pages, 4276 lignes\\
+Laboratoire & \file{vm-lab/} & 4 scripts shell qui construisent l'infrastructure de démonstration dans une VM Ubuntu\\
+Orchestration & \file{docker-compose.yml} & \textbf{Uniquement} PostgreSQL 16 et ChromaDB. Ni backend ni frontend n'y sont déclarés\\
+Reverse proxy & \file{nginx/nginx.conf} & \textcolor{oasisred}{Fichier présent mais vide (0 octet)}\\
+CI & \file{.github/workflows/ci.yml} & \textcolor{oasisred}{Fichier présent mais vide (0 octet)}\\
+Images Docker & \file{backend/Dockerfile}, \file{frontend/Dockerfile} & \textcolor{oasisred}{Présents mais vides (0 octet)}\\
+\bottomrule
+\end{longtable}
+
+\begin{warnbox}
+\textbf{À dire tel quel en soutenance.} Le projet \emph{n'est pas} conteneurisé
+de bout en bout aujourd'hui. Docker sert à faire tourner les deux dépendances
+(PostgreSQL et ChromaDB) ; le backend et le frontend se lancent en local, comme
+le montre \file{.claude/launch.json} : \texttt{uvicorn app.main:app -{}-reload
+-{}-port 8000} et \texttt{npm run dev} sur le port 5173.
+\end{warnbox}
+
+% ---------------------------------------------------------------------
+\section{Quel est le rôle du frontend ?}
+
+Le frontend est une \textbf{application monopage} qui ne dessert qu'un seul
+espace de travail. \file{src/App.tsx} le dit explicitement en commentaire :
+« Cette version ne dessert qu'un seul espace de travail. Les autres rôles sont
+renvoyés vers Storage plutôt que de se voir proposer une liste de personas. »
+
+\subsection{Routage}
+
+Tout est sous \route{/storage}, protégé par le composant \cls{RequireAuth} :
+
+\begin{longtable}{@{}p{4.0cm}p{3.6cm}p{6.9cm}@{}}
+\toprule
+\textbf{Route} & \textbf{Composant} & \textbf{Ce que la page fait}\\
+\midrule
+\endhead
+\route{/login} & \cls{LoginPage} & Formulaire e-mail / mot de passe, option « se souvenir »\\
+\route{/storage/dashboard} & \cls{DashboardPage} & KPI capacité, sauvegardes, incidents, performance, insights, activité\\
+\route{/storage/chat} & \cls{ChatPage} & Fils de conversation persistés, propositions d'action inline\\
+\route{/storage/incidents} & \cls{IncidentsPage} & Liste filtrable, fiche détaillée, cycle de vie en 5 étapes, bouton « Investigate »\\
+\route{/storage/requests} & \cls{RequestsPage} & Demandes ingénieur \(\leftrightarrow\) administrateur, pièces jointes, transitions de statut\\
+\route{/storage/data-hub} & \cls{DataHubPage} & Dépôt de documents indexés dans le RAG\\
+\route{/storage/reports} & \cls{ReportsPage} & Téléchargement des rapports PDF\\
+\route{/storage/settings} & \cls{SettingsPage} & Écran de réglages\\
+\bottomrule
+\end{longtable}
+
+\subsection{Responsabilités concrètes}
+
+\begin{itemize}
+  \item \textbf{Porter le jeton.} \file{lib/api.ts} lit le JWT dans
+  \texttt{localStorage} ou \texttt{sessionStorage} et ajoute l'en-tête
+  \texttt{Authorization: Bearer}.
+  \item \textbf{Traiter la déconnexion globale.} Toute réponse 401 déclenche
+  \fn{onUnauthorized()}, câblé sur \fn{signOut} par \cls{AuthProvider}.
+  \item \textbf{Rendre les boutons de confirmation.} \cls{ActionProposal} est le
+  \emph{seul} composant qui appelle \route{/storage/actions/\{id\}/confirm} ou
+  \route{/reject}. Il est partagé entre le chat et la fiche d'incident.
+  \item \textbf{Ne dupliquer aucune règle métier.} Les phrases affichées sur le
+  dashboard (\fn{headline}, \fn{insights}) sont calculées côté backend dans
+  \file{kpi\_service.py} ; le frontend les affiche.
+  \item \textbf{Télécharger des fichiers authentifiés.} \fn{api.download} récupère
+  la réponse en \emph{blob} car un simple \texttt{<a href>} n'enverrait pas
+  l'en-tête \texttt{Authorization}.
+\end{itemize}
+
+% ---------------------------------------------------------------------
+\section{Quel est le rôle du backend ?}
+
+Le backend est le \textbf{centre de décision}. Il fait cinq choses que le
+frontend ne fait jamais.
+
+\begin{enumerate}
+  \item \textbf{Authentifier et autoriser} --- \fn{get\_current\_user},
+  \fn{require\_role}.
+  \item \textbf{Orchestrer l'agent} --- construire le prompt (RAG + date + ticket),
+  boucler sur les appels d'outils, intercepter les outils de remédiation.
+  \item \textbf{Décider ce qui est un incident} --- les seuils sont dans
+  \file{personas/storage/incident\_rules.py} (85\,\% / 95\,\%) et
+  \file{tools/health.py} (90\,\% / 95\,\% / 24\,h), \textbf{jamais} dans le
+  modèle.
+  \item \textbf{Exécuter les actions confirmées} --- et elles seules.
+  \item \textbf{Tenir trois tâches de fond} --- collecte de métriques,
+  surveillance des sauvegardes, premier relevé de santé.
+\end{enumerate}
+
+\subsection{Le point d'entrée : \file{app/main.py}}
+
+\begin{lstlisting}[language=Python,caption={Cycle de vie de l'application (extrait réel)}]
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    tasks = [
+        asyncio.create_task(metrics_collector.run_forever()),
+        asyncio.create_task(incident_watcher.run_forever()),
+        asyncio.create_task(_prime_storage_health()),
+    ]
+    try:
+        yield
+    finally:
+        for task in tasks:
+            task.cancel()
+\end{lstlisting}
+
+\noindent
+Onze routeurs sont montés sous \route{/api/v1} : \texttt{cross\_domain},
+\texttt{admin}, \texttt{incidents}, \texttt{auth}, \texttt{storage},
+\texttt{storage/actions}, \texttt{storage/dashboard}, \texttt{storage/documents},
+\texttt{storage/reports}, \texttt{requests}, \texttt{storage/search}.
+
+\begin{warnbox}
+\textbf{Point de sécurité à connaître.} Le middleware CORS est configuré avec
+\texttt{allow\_origins=["*"]} et \texttt{allow\_credentials=True}. C'est
+acceptable en développement ; en production, l'origine devrait être restreinte.
+\end{warnbox}
+
+% ---------------------------------------------------------------------
+\section{Quelle base de données est utilisée et pourquoi ?}
+
+\subsection{PostgreSQL 16}
+
+Déclarée dans \file{docker-compose.yml} (\texttt{image: postgres:16}), pilotée
+par SQLAlchemy en mode \textbf{synchrone} (\file{app/database/session.py} :
+\fn{create\_engine} + \fn{sessionmaker}, pas d'\texttt{async\_sessionmaker}).
+
+Quatre raisons \emph{vérifiables dans le code} justifient PostgreSQL plutôt
+qu'un SQLite ou un MySQL :
+
+\begin{enumerate}
+  \item \textbf{JSONB.} Six colonnes l'utilisent :
+  \tbl{incident\_tickets.mcp\_data}, \tbl{incident\_tickets.recommendations},
+  \tbl{action\_requests.parameters}, \tbl{action\_requests.result},
+  \tbl{mcp\_calls.arguments}, \tbl{mcp\_calls.result}. Le relevé brut d'un outil
+  est stocké tel quel, et \emph{interrogé} : \file{incident\_service.py} exécute
+  \texttt{IncidentTicket.mcp\_data[key].astext == str(identifier)} pour retrouver
+  un ticket ouvert par identifiant technique. Aucun moteur sans JSON indexable ne
+  permettrait cette requête.
+
+  \item \textbf{UUID natif.} \texttt{sqlalchemy.dialects.postgresql.UUID} est
+  utilisé comme clé primaire de sept tables.
+
+  \item \textbf{\texttt{date\_bin}.} \file{metrics\_service.read\_series} agrège
+  les métriques par intervalle de largeur fixe avec \fn{func.date\_bin}, une
+  fonction \textbf{PostgreSQL 14+}. Le graphique de performance en dépend
+  directement.
+
+  \item \textbf{Types ENUM natifs.} \texttt{IncidentSeverity},
+  \texttt{IncidentStatus}, \texttt{ActionRequestStatus}, \texttt{MCPCallStatus},
+  \texttt{RequestStatus}, \texttt{RequestDirection}, \texttt{RequestPriority},
+  \texttt{DocumentStatus}, \texttt{AccessRequestStatus} sont mappés en
+  \texttt{Enum} SQLAlchemy.
+\end{enumerate}
+
+\subsection{ChromaDB}
+
+Seconde base, purement vectorielle, atteinte en HTTP
+(\fn{chromadb.HttpClient(host, port)}). Elle stocke les \emph{chunks} de la base
+de connaissances Storage, vectorisés par \texttt{intfloat/multilingual-e5-small}
+(384 dimensions).
+
+\begin{keybox}
+\textbf{Garde-fou remarquable.} \fn{get\_or\_create\_collection} grave le nom du
+modèle d'embedding dans les métadonnées de la collection et \textbf{refuse} de
+servir une collection indexée avec un autre modèle
+(\cls{EmbeddingModelMismatch}). Raison donnée dans le code : l'ancien modèle
+\texttt{bge-small-en-v1.5} produisait lui aussi des vecteurs de 384 dimensions,
+donc Chroma aurait accepté la requête sans erreur et renvoyé « des réponses
+fausses, mais parfaitement plausibles ».
+\end{keybox}
+
+% ---------------------------------------------------------------------
+\section{Comment le frontend communique avec le backend ?}
+
+Un unique module, \file{frontend/src/lib/api.ts}, concentre toute la
+communication. Il n'y a ni Axios, ni React Query, ni client généré :
+\texttt{fetch} natif enveloppé.
+
+\begin{lstlisting}[caption={Contrat de communication (extraits de lib/api.ts)}]
+const BASE_URL = import.meta.env.VITE_API_URL ?? '/api/v1';
+const TOKEN_KEY = 'oasis.token';
+
+// injection systematique du jeton
+if (token) headers.set('Authorization', `Bearer ${token}`);
+
+// FormData => pas de Content-Type impose (le navigateur pose la frontiere)
+if (init.body && !(init.body instanceof FormData)) {
+  headers.set('Content-Type', 'application/json');
+}
+
+// 401 => deconnexion globale, pas d'affichage d'erreur local
+if (response.status === 401) { onUnauthorized(); throw new ApiError(...); }
+\end{lstlisting}
+
+\begin{longtable}{@{}p{2.4cm}p{12.5cm}@{}}
+\toprule
+\textbf{Verbe} & \textbf{Usage}\\
+\midrule
+\endhead
+\fn{get} & Lectures : dashboard, incidents, conversations, demandes, documents\\
+\fn{post} & Connexion, envoi d'un message, investigation, confirmation d'action\\
+\fn{patch} & Renommage de conversation, statut d'incident, statut de demande\\
+\fn{delete} & Suppression de conversation, de document, de demande, de pièce jointe\\
+\fn{upload} & \texttt{FormData} avec un champ \texttt{file} : Data Hub et pièces jointes\\
+\fn{download} & Récupération en \emph{blob} puis \texttt{URL.createObjectURL} : PDF et pièces jointes\\
+\bottomrule
+\end{longtable}
+
+\noindent
+En développement, \file{vite.config.ts} proxifie \route{/api} vers
+\texttt{http://127.0.0.1:8000}, ce qui évite tout problème CORS côté navigateur.
+
+% ---------------------------------------------------------------------
+\section{Comment le backend communique avec les autres services ?}
+
+\begin{longtable}{@{}p{2.9cm}p{2.9cm}p{8.6cm}@{}}
+\toprule
+\textbf{Service} & \textbf{Protocole} & \textbf{Où, et comment}\\
+\midrule
+\endhead
+PostgreSQL & TCP / psycopg2 & \file{database/session.py} : \fn{create\_engine(settings.database\_url, pool\_pre\_ping=True)}\\
+Groq (LLM) & HTTPS & \file{llm/groq\_client.py} : SDK \texttt{groq}, \fn{chat.completions.create} avec \texttt{tools} et \texttt{tool\_choice="auto"}\\
+Serveur MCP & \textbf{stdio} & \file{mcp/storage/client.py} : \fn{stdio\_client(StdioServerParameters(command=sys.executable, args=["-m","app.mcp.storage.tool\_server"]))}\\
+VM Storage & SSH (22) & \file{mcp/storage/ssh.py} : \texttt{paramiko.SSHClient}, authentification par clé, timeouts 5\,s / 15\,s\\
+ChromaDB & HTTP (8001) & \file{rag/vectorstore.py} : \fn{chromadb.HttpClient}\\
+Système de fichiers & local & \file{settings.upload\_dir} pour le Data Hub et \file{upload\_dir/requests} pour les pièces jointes\\
+\bottomrule
+\end{longtable}
+
+\begin{infobox}
+\textbf{Anthropic Claude est configuré mais pas branché.} \file{core/config.py}
+déclare \texttt{anthropic\_api\_key}, et \file{orchestrator/llm\_router.py}
+contient un \texttt{raise NotImplementedError("Claude pas encore branche")}. Le
+seul LLM réellement appelé est \textbf{Groq}. Ne pas l'annoncer autrement.
+\end{infobox}
+
+% ---------------------------------------------------------------------
+\section{Où intervient l'authentification ?}
+
+L'authentification intervient à \textbf{quatre endroits distincts}.
+
+\begin{enumerate}
+  \item \textbf{À la connexion} --- \route{POST /api/v1/auth/login}.
+  \fn{auth\_service.login} \arrowto{} \fn{authenticate\_user} (recherche par
+  e-mail, \fn{verify\_password} bcrypt, contrôle \texttt{is\_active}) \arrowto{}
+  \fn{create\_access\_token(subject=email, role=role.name)}. Le jeton porte
+  \texttt{sub}, \texttt{role} et \texttt{exp}, signé HS256, durée
+  \texttt{jwt\_expire\_minutes}.
+
+  \item \textbf{À chaque requête protégée} --- la dépendance
+  \fn{get\_current\_user} (\file{api/deps.py}) extrait le \texttt{Bearer} via
+  \texttt{HTTPBearer}, décode, relit l'utilisateur en base par son e-mail et
+  \textbf{revérifie} \texttt{is\_active}. Un compte désactivé après émission du
+  jeton est donc rejeté immédiatement.
+
+  \item \textbf{Au contrôle de rôle} --- \fn{require\_role("storage\_engineer",
+  "administrator")} renvoie 403 sinon. Utilisé par les routeurs
+  \texttt{storage}, \texttt{dashboard}, \texttt{knowledge}, \texttt{reports},
+  \texttt{search}, \texttt{requests}, \texttt{admin} et par
+  \route{/incidents/\{id\}/investigate}.
+
+  \item \textbf{Dans le middleware d'audit} --- \fn{\_extract\_user\_id} redécode
+  le jeton pour attribuer chaque ligne de \tbl{audit\_logs} à un utilisateur,
+  y compris pour les requêtes refusées en 401 ou 403.
+\end{enumerate}
+
+\begin{warnbox}
+\textbf{Deux points à énoncer honnêtement.}
+
+\emph{(a)} Les routes de \file{api/v1/actions.py} exigent seulement
+\fn{get\_current\_user}, \textbf{pas} \fn{require\_role}. Un utilisateur
+authentifié quel que soit son rôle peut donc confirmer une action dont il
+connaît l'identifiant. Le filtrage par rôle est présent partout ailleurs.
+
+\emph{(b)} \fn{create\_cross\_domain\_token} produit un jeton à portée réduite
+(\texttt{scope: cross\_domain\_read\_only}), mais \textbf{aucun code du dépôt ne
+vérifie ce scope}. Le commentaire du fichier le dit d'ailleurs : « que le futur
+MCP Client devra vérifier ». C'est une brique préparée, pas une brique active.
+\end{warnbox}
+
+% ---------------------------------------------------------------------
+\section{Où intervient le MCP Server ?}
+
+Oui, le projet utilise réellement MCP, avec le SDK officiel
+\texttt{mcp==2.0.0}. Le chapitre~\ref{ch:mcp} y est entièrement consacré. En
+résumé :
+
+\begin{itemize}
+  \item Le \textbf{serveur} vit dans \file{app/mcp/storage/tool\_server.py} :
+  quatre lignes qui instancient \cls{MCPServer("oasis-storage-mcp")} et
+  enregistrent les dix fonctions du \fn{TOOL\_REGISTRY}.
+  \item Le \textbf{registre} vit dans \file{app/mcp/storage/server.py} : un
+  dictionnaire nom \arrowto{} fonction, plus deux ensembles de classification du
+  risque.
+  \item Le \textbf{client} vit dans \file{app/mcp/storage/client.py} : il lance
+  le serveur comme \textbf{sous-processus} et dialogue avec lui en JSON-RPC sur
+  l'entrée/sortie standard.
+  \item Il intervient \textbf{à trois moments} : pendant une conversation du
+  chat, pendant une investigation d'incident, et à la confirmation d'une action.
+\end{itemize}
+
+% ---------------------------------------------------------------------
+\section{Comment les outils/actions sont exécutés ?}
+
+Deux régimes, décidés par un seul \texttt{if} dans
+\file{personas/storage/agent.py} :
+
+\begin{lstlisting}[language=Python,caption={Le coeur du garde-fou (agent.py)}]
+if name in REMEDIATION_TOOLS:
+    if audit_db is None:
+        result = {"status": "denied", "reason": "confirmation_required", ...}
+    else:
+        result, action_id = self._propose_action(audit_db, tool_name=name,
+                                                 arguments=arguments,
+                                                 created_by=created_by,
+                                                 incident=incident)
+else:
+    result = await mcp.call_tool(name, db=audit_db, user_id=created_by,
+                                 correlation_id=correlation_id, **arguments)
+\end{lstlisting}
+
+\begin{longtable}{@{}p{3.6cm}p{5.4cm}p{5.5cm}@{}}
+\toprule
+& \textbf{Outils de lecture} & \textbf{Outils de remédiation}\\
+\midrule
+\endhead
+Liste & \fn{get\_capacity}, \fn{list\_backups}, \fn{get\_backup\_job\_status}, \fn{get\_backup\_logs}, \fn{list\_snapshots}, \fn{get\_storage\_health} & \fn{run\_backup}, \fn{create\_snapshot}, \fn{restore\_from\_backup}, \fn{repair\_backup\_repository}\\
+Depuis le chat & Exécutés immédiatement via MCP & \textbf{Jamais exécutés} : une ligne \tbl{action\_requests} \texttt{pending} est créée\\
+Audit & \tbl{mcp\_calls} & \tbl{action\_requests}, puis \tbl{mcp\_calls} à la confirmation\\
+Exécution réelle & N/A & Uniquement \route{POST /storage/actions/\{id\}/confirm}\\
+\bottomrule
+\end{longtable}
+
+% ---------------------------------------------------------------------
+\section{Quels sont les principaux flux de données ?}
+
+\begin{longtable}{@{}p{3.4cm}p{11.5cm}@{}}
+\toprule
+\textbf{Flux} & \textbf{Trajet}\\
+\midrule
+\endhead
+Conversation & \cls{ChatPage} \arrowto{} \route{POST /storage/chat} \arrowto{} \fn{storage\_persona.handle\_message} (RAG Chroma + Groq + MCP) \arrowto{} \fn{chat\_service.save\_turn} \arrowto{} \tbl{chat\_messages}\\
+Détection & \fn{incident\_watcher.run\_forever} (300\,s) \arrowto{} \fn{list\_backups} (SSH) \arrowto{} \fn{check\_backup\_status} \arrowto{} \fn{create\_ticket\_from\_diagnosis} \arrowto{} \tbl{incident\_tickets}\\
+Investigation & \route{POST /incidents/\{id\}/investigate} \arrowto{} \fn{incident\_investigation.start} \arrowto{} agent avec \cls{IncidentContext} \arrowto{} fil de chat + \tbl{action\_requests} + synthèse \texttt{root\_cause}\\
+Confirmation & \cls{ActionProposal} \arrowto{} \route{POST /storage/actions/\{id\}/confirm} \arrowto{} \fn{confirm\_and\_execute\_action} (MCP, \texttt{confirm=True}) \arrowto{} \fn{\_close\_the\_loop} \arrowto{} \fn{incident\_verification.verify}\\
+Dashboard & \route{GET /storage/dashboard/overview} \arrowto{} \fn{kpi\_service.get\_overview} \arrowto{} cache 60\,s de \fn{get\_storage\_health} + agrégats SQL\\
+Métriques & \fn{metrics\_collector} (300\,s) \arrowto{} \fn{sample\_disk\_performance} (2 lectures de \texttt{/proc/diskstats}) \arrowto{} \tbl{disk\_metrics} \arrowto{} \fn{read\_series} (\texttt{date\_bin})\\
+RAG & \cls{DataHubPage} \arrowto{} \route{POST /storage/documents} \arrowto{} \fn{knowledge\_service.create\_document} \arrowto{} extraction, \fn{chunk\_text}, \fn{embed\_passages} \arrowto{} Chroma \texttt{storage\_kb}\\
+Demandes & \cls{RequestsPage} \arrowto{} \route{/requests} \arrowto{} \fn{request\_service} (direction déduite du rôle, transitions contrôlées) \arrowto{} \tbl{service\_requests} + \tbl{request\_events}\\
+Recherche & \cls{GlobalSearch} \arrowto{} \route{GET /storage/search?q=} \arrowto{} 4 requêtes ILIKE (incidents, demandes, conversations, documents)\\
+Audit HTTP & Toute requête \arrowto{} \cls{AuditMiddleware} \arrowto{} \tbl{audit\_logs} (méthode, chemin, statut, durée, IP)\\
+\bottomrule
+\end{longtable}
+
+% =====================================================================
+%  Chapitres suivants
+% =====================================================================
+\input{parts/p2-arborescence}
+\input{parts/p3-backend}
+\input{parts/p4-database}
+\input{parts/p5-workflows}
+\input{parts/p6-mcp}
+\input{parts/p7-actions}
+\input{parts/p8-technos}
+\input{parts/p9-fichiers}
+
+\end{document}

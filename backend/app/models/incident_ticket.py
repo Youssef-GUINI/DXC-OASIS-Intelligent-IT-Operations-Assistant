@@ -76,3 +76,7 @@ class IncidentTicketNote(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     ticket = relationship("IncidentTicket", back_populates="notes")
+
+    # Qui a écrit la note. La piste d'audit d'un incident n'a d'intérêt que
+    # nommée : « clôturé sans remédiation » ne dit rien si l'on ignore par qui.
+    author = relationship("User")

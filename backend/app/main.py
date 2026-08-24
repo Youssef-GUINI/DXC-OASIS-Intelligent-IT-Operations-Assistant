@@ -16,6 +16,7 @@ from app.api.v1.incidents import router as incidents_router
 from app.api.v1.dashboard import router as dashboard_router
 from app.api.v1.knowledge import router as knowledge_router
 from app.api.v1.reports import router as reports_router
+from app.api.v1.requests import router as requests_router
 from app.api.v1.search import router as search_router
 from app.dashboard import kpi_service
 from app.services import incident_watcher, metrics_collector
@@ -82,6 +83,7 @@ app.include_router(storage_actions_router, prefix="/api/v1")
 app.include_router(dashboard_router, prefix="/api/v1")
 app.include_router(knowledge_router, prefix="/api/v1")
 app.include_router(reports_router, prefix="/api/v1")
+app.include_router(requests_router, prefix="/api/v1")
 app.include_router(search_router, prefix="/api/v1")
 
 

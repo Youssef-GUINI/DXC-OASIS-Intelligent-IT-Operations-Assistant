@@ -15,6 +15,9 @@ from __future__ import annotations
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+import uuid
+
+from app.models.action_request import ActionRequest
 from app.models.chat_message import (
     ROLE_ASSISTANT,
     ROLE_USER,
@@ -106,6 +109,31 @@ def delete_conversation(db: Session, conversation: ChatConversation) -> None:
 
 
 # --- Messages -------------------------------------------------------------
+
+
+def attach_actions(
+    db: Session, message: ChatMessage, action_ids: list[uuid.UUID]
+) -> ChatMessage:
+    """
+    Rattache au message les actions qu'il propose.
+
+    Le lien ne peut être posé qu'après coup : l'agent enregistre les
+    propositions pendant son tour, alors que le message qui les annonce
+    n'existe pas encore et n'a donc pas d'identifiant. Sans ce rattachement,
+    les boutons Confirmer/Rejeter disparaîtraient au rechargement du fil,
+    alors que les actions, elles, resteraient en attente en base.
+    """
+    if not action_ids:
+        return message
+
+    db.execute(
+        ActionRequest.__table__.update()
+        .where(ActionRequest.id.in_(action_ids))
+        .values(chat_message_id=message.id)
+    )
+    db.commit()
+    db.refresh(message)
+    return message
 
 
 def list_messages(db: Session, conversation_id: int, limit: int = MAX_HISTORY) -> list[ChatMessage]:

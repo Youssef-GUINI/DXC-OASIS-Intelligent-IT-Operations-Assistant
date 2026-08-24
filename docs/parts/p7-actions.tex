@@ -1,0 +1,295 @@
+% =====================================================================
+\chapter{Actions dangereuses et confirmation humaine}
+\label{ch:actions}
+
+Ce chapitre recense \emph{toutes} les fonctions du dépôt capables de modifier un
+système, de supprimer quelque chose, de démarrer un service, de toucher à un
+volume, à un snapshot, à une sauvegarde ou à une configuration --- puis détaille
+le mécanisme de confirmation.
+
+% =====================================================================
+\section{Inventaire des fonctions à effet de bord}
+
+\subsection{Groupe A --- Modification de l'infrastructure (VM)}
+
+\begin{longtable}{@{}p{3.6cm}p{3.5cm}p{7.3cm}@{}}
+\toprule
+\textbf{Fonction} & \textbf{Fichier} & \textbf{Ce qu'elle fait réellement}\\
+\midrule
+\endhead
+\fn{run\_backup(target)} & \file{tools/backup.py} & \texttt{systemctl start <service>} --- démarre un job de sauvegarde existant\\
+\fn{create\_snapshot(volume\_id, volume\_group, size\_gb)} & \file{tools/snapshot.py} & \texttt{sudo lvcreate -{}-snapshot -{}-size <n>G -{}-name <nom> /dev/<vg>/<lv>}\\
+\fn{restore\_from\_backup(target, backup\_id, confirm)} & \file{tools/restore.py} & \texttt{sudo lvconvert -{}-merge <snapshot>} --- \textbf{écrase le volume}\\
+\fn{repair\_backup\_repository(target, confirm)} & \file{tools/repair.py} & Écrit un drop-in systemd et recharge le démon\\
+\fn{\_write\_drop\_in(service, body)} & \file{tools/repair.py} & \texttt{sudo -n install -d}, \texttt{sudo -n tee}, \texttt{systemctl daemon-reload}\\
+\fn{ssh.run(command, allow\_failure)} & \file{mcp/storage/ssh.py} & \textbf{Exécute une commande arbitraire} sur la VM\\
+\fn{ssh.run\_many(commands)} & \file{mcp/storage/ssh.py} & Idem, plusieurs commandes sur une session\\
+\bottomrule
+\end{longtable}
+
+\begin{keybox}
+\textbf{Point de sécurité important.} \fn{ssh.run} est la seule porte vers la
+VM, et \textbf{aucune commande n'est composée à partir d'une chaîne fournie par
+le modèle}. Le modèle fournit des \emph{arguments} (un nom d'unit, un nom de
+volume), jamais un verbe. Les commandes sont écrites en dur dans les outils, et
+chaque argument passe par \fn{quote} (\texttt{shlex.quote}) ou par une
+conversion numérique.
+\end{keybox}
+
+\subsection{Groupe B --- Suppressions applicatives}
+
+\begin{longtable}{@{}p{3.9cm}p{3.4cm}p{7.1cm}@{}}
+\toprule
+\textbf{Fonction} & \textbf{Fichier} & \textbf{Ce qu'elle supprime}\\
+\midrule
+\endhead
+\fn{delete\_conversation} & \file{services/chat\_service.py} & La conversation et ses messages (\texttt{ON DELETE CASCADE})\\
+\fn{delete\_document} & \file{services/knowledge\_service.py} & Les chunks dans Chroma, \emph{puis} le fichier sur disque, \emph{puis} la ligne en base\\
+\fn{delete\_request} & \file{services/request\_service.py} & La demande, ses messages, son journal, ses pièces jointes, et les binaires sur disque\\
+\fn{delete\_attachment} & \file{services/request\_service.py} & Une pièce jointe et son binaire\\
+\fn{purge\_old} & \file{services/metrics\_service.py} & Les \tbl{disk\_metrics} de plus de 31 jours\\
+\bottomrule
+\end{longtable}
+
+\begin{infobox}
+\textbf{Aucune de ces suppressions ne touche l'infrastructure.} Elles restent
+dans le périmètre applicatif. Elles ne passent donc pas par le mécanisme
+d'\cls{ActionRequest} --- mais elles sont toutes protégées par
+\fn{require\_role} et, pour les demandes et conversations, par un contrôle de
+propriété.
+\end{infobox}
+
+\subsection{Groupe C --- Modifications d'état applicatif}
+
+\fn{confirm\_and\_execute\_action}, \fn{reject\_action\_request},
+\fn{resolve\_ticket}, \fn{update\_ticket\_status}, \fn{update\_status}
+(demandes), \fn{approve\_request} / \fn{reject\_request} (cross-domain).
+Toutes écrivent une trace : note d'incident ou ligne \tbl{request\_events}.
+
+% =====================================================================
+\section{Fiche détaillée de chaque action d'infrastructure}
+
+% ---------------------------------------------------
+\subsection{\fn{run\_backup(target)}}
+
+\begin{longtable}{@{}p{3.2cm}p{11.6cm}@{}}
+\toprule
+\endhead
+\textbf{Où} & \file{app/mcp/storage/tools/backup.py}\\
+\textbf{Qui peut l'appeler} & Le modèle, mais l'appel est \textbf{intercepté} : \texttt{run\_backup} $\in$ \texttt{REMEDIATION\_TOOLS}. Exécution réelle uniquement via \route{POST /storage/actions/\{id\}/confirm}\\
+\textbf{Paramètres} & \texttt{target: str} --- nom du timer (\texttt{backup-app-critical.timer}) ou du service\\
+\textbf{Effet réel} & Convertit \texttt{.timer} en \texttt{.service}, puis \texttt{systemctl start <service>} par SSH\\
+\textbf{Confirmation} & \textbf{Oui}, par la politique de l'application. Le docstring de l'outil dit pourtant « pas de confirmation requise » : l'outil se juge inoffensif, l'application le soumet quand même au clic humain\\
+\textbf{Retour} & \texttt{\{"action": "backup\_started", "target", "status": "running"\}} ou \texttt{\{"error": ..., "action": "backup\_failed"\}}\\
+\bottomrule
+\end{longtable}
+
+% ---------------------------------------------------
+\subsection{\fn{create\_snapshot(volume\_id, volume\_group, size\_gb)}}
+
+\begin{longtable}{@{}p{3.2cm}p{11.6cm}@{}}
+\toprule
+\endhead
+\textbf{Où} & \file{app/mcp/storage/tools/snapshot.py}\\
+\textbf{Qui} & Même circuit : proposition puis confirmation\\
+\textbf{Paramètres} & \texttt{volume\_id} (obligatoire), \texttt{volume\_group} (déduit par \texttt{lvs} s'il est absent), \texttt{size\_gb=1.0}\\
+\textbf{Effet réel} & Nom horodaté \texttt{<lv>-snap-AAAAMMJJ-HHMMSS}, puis \texttt{sudo lvcreate -{}-snapshot -{}-size <n>G -{}-name <nom> /dev/<vg>/<lv>}\\
+\textbf{Confirmation} & Oui (appartenance à \texttt{REMEDIATION\_TOOLS}). L'outil lui-même n'exige pas \texttt{confirm=True}\\
+\textbf{Nature} & Non destructive : « elle ajoute un volume, elle n'écrase rien »\\
+\textbf{Garde-fou interne} & Si le logical volume n'existe pas : \texttt{\{"error": "Logical volume '<x>' not found on the VM"\}}, sans rien exécuter\\
+\bottomrule
+\end{longtable}
+
+% ---------------------------------------------------
+\subsection{\fn{restore\_from\_backup(target, backup\_id, confirm)} --- la plus dangereuse}
+
+\begin{longtable}{@{}p{3.2cm}p{11.6cm}@{}}
+\toprule
+\endhead
+\textbf{Où} & \file{app/mcp/storage/tools/restore.py}\\
+\textbf{Classement} & Seul membre de \texttt{DESTRUCTIVE\_TOOLS}, et membre de \texttt{REMEDIATION\_TOOLS}\\
+\textbf{Paramètres} & \texttt{target} (volume), \texttt{backup\_id} (nom du snapshot LVM), \texttt{confirm=False}\\
+\textbf{Effet réel} & \texttt{sudo lvconvert -{}-merge <snapshot>} --- « elle écrase l'état courant du volume par celui du snapshot » et supprime le snapshot\\
+\textbf{Double verrou} & \emph{(1)} interception par \texttt{REMEDIATION\_TOOLS} ; \emph{(2)} l'outil lui-même refuse d'agir sans \texttt{confirm=True}\\
+\textbf{Sans confirmation} & Retourne \texttt{\{"action": "restore\_requires\_confirmation", "warning": "\ldots{} écrasera les données actuelles du volume et supprimera le snapshot"\}} --- \textbf{rien n'est exécuté}\\
+\textbf{Note technique} & LVM ne fusionne qu'au prochain démontage/remontage : le retour le dit et invite à vérifier avec \texttt{lvs}\\
+\bottomrule
+\end{longtable}
+
+\begin{lstlisting}[language=Python,caption={Le refus par défaut, dans l'outil lui-même}]
+def restore_from_backup(target: str, backup_id: str, confirm: bool = False) -> dict:
+    if not confirm:
+        return {
+            "action": "restore_requires_confirmation",
+            "target": target, "backup_id": backup_id,
+            "warning": (f"Fusionner le snapshot '{backup_id}' dans '{target}' ecrasera "
+                        "les donnees actuelles du volume et supprimera le snapshot. "
+                        "Confirmation explicite requise."),
+        }
+    output = run(f"sudo lvconvert --merge {quote(backup_id)}")
+\end{lstlisting}
+
+% ---------------------------------------------------
+\subsection{\fn{repair\_backup\_repository(target, confirm)}}
+
+C'est l'outil le plus élaboré du projet, et le seul qui \emph{modifie une
+configuration système}. Il mérite un développement.
+
+\subsubsection*{Le problème qu'il traite}
+Le docstring l'expose : « Jusqu'ici OASIS savait relancer un job en échec, pas
+corriger ce qui le faisait échouer. Sur un job dont le dépôt restic est
+introuvable, relancer ne pouvait que reproduire la même erreur : l'ingénieur
+voyait un diagnostic juste suivi d'une remédiation vouée à rater. »
+
+\subsubsection*{Les trois principes déclarés}
+\begin{enumerate}
+  \item \textbf{Il ne devine rien.} Le dépôt de remplacement est \emph{lu sur la
+  machine}, pas fourni par le modèle, et seuls les jobs dont la dernière
+  exécution a réussi servent de référence.
+  \item \textbf{Il ne touche pas au fichier d'unité.} Un drop-in s'annule d'un
+  \texttt{systemctl revert}, ce que la réécriture d'une unité ne permet pas.
+  \item \textbf{Il refuse plutôt que d'approximer.}
+\end{enumerate}
+
+\subsubsection*{Déroulé, étape par étape}
+
+\begin{longtable}{@{}p{0.7cm}p{4.6cm}p{9.4cm}@{}}
+\toprule
+\textbf{\#} & \textbf{Étape} & \textbf{Détail}\\
+\midrule
+\endhead
+1 & Lecture de la configuration & \texttt{systemctl show <service> -p Environment -p EnvironmentFiles -p FragmentPath}\\
+2 & Unit inexistante & \texttt{\{"action": "repair\_failed", "error": "No systemd unit named \ldots"\}}\\
+3 & Pas de \texttt{RESTIC\_REPOSITORY} direct & \texttt{"no\_repair\_possible"} : la configuration vient d'un fichier que le compte SSH ne peut pas lire\\
+4 & Test du dépôt & \fn{\_repository\_state} lance \texttt{restic cat config} avec un \textbf{faux mot de passe} volontaire\\
+5 & Interprétation & \texttt{"version"} dans la sortie \arrowto{} \texttt{valid} ; « wrong password » \arrowto{} \texttt{protected} ; « no such file » \arrowto{} \texttt{missing} ; sinon \texttt{unknown}\\
+6 & Dépôt valide ou protégé & \texttt{"no\_repair\_needed"} : « The job fails for another reason --- read its journal with \fn{get\_backup\_logs} »\\
+7 & Recherche du donneur & \fn{\_healthy\_donor} liste les services de sauvegarde, écarte les units de la distribution, lit leur \texttt{EnvironmentFiles}\\
+8 & Critères stricts & Le fichier doit être celui du plus grand nombre de jobs, \textbf{strictement} (égalité \arrowto{} abstention), et au moins un job l'utilisant doit avoir réussi\\
+9 & Pas de donneur & \texttt{"no\_repair\_possible"} avec la liste des voisins examinés\\
+10 & \textbf{Sans \texttt{confirm}} & \texttt{"repair\_requires\_confirmation"} avec un champ \texttt{plan} en langage clair\\
+11 & Avec \texttt{confirm=True} & Écriture du drop-in, \texttt{systemctl daemon-reload}, puis relecture pour vérifier la prise en compte\\
+12 & Refus de sudo & \fn{\_missing\_privilege} traduit l'erreur en consigne exploitable (règle sudoers précise, ou marche à suivre manuelle)\\
+\bottomrule
+\end{longtable}
+
+\begin{keybox}
+\textbf{L'astuce du faux mot de passe.} \fn{\_repository\_state} passe
+\texttt{-{}-password-command 'printf x'} exprès : « restic lit le fichier
+\texttt{config} du dépôt avant de vérifier la clé, donc l'absence de dépôt et le
+mauvais mot de passe produisent deux erreurs distinctes. C'est ce qui permet de
+distinguer "rien ici" de "dépôt bien présent" sans manipuler le moindre
+secret. » C'est un excellent exemple de conception défensive à citer.
+\end{keybox}
+
+\subsubsection*{Réversibilité}
+Le drop-in écrit contient un en-tête qui identifie son auteur et donne la
+commande d'annulation :
+
+\begin{lstlisting}[caption={Contenu du fichier /etc/systemd/system/<service>.d/50-oasis-repair.conf}]
+# Written by OASIS on 2026-08-23 14:12 UTC (repair_backup_repository).
+# backup-app-critical.service pointed at /srv/repo, which is not a restic repository.
+# It now reads the environment shared by this host's healthy backup jobs.
+# Undo with: sudo systemctl revert backup-app-critical.service
+[Service]
+EnvironmentFile=/etc/oasis/restic.env
+\end{lstlisting}
+
+% =====================================================================
+\section{Le mécanisme de confirmation humaine}
+
+\subsection{Où il est implémenté}
+
+\begin{longtable}{@{}p{4.4cm}p{10.4cm}@{}}
+\toprule
+\textbf{Couche} & \textbf{Implémentation}\\
+\midrule
+\endhead
+Classification & \texttt{REMEDIATION\_TOOLS} dans \file{mcp/storage/server.py}\\
+Interception & \fn{StoragePersona.\_propose\_action} dans \file{personas/storage/agent.py}\\
+Persistance & Table \tbl{action\_requests}, statut \texttt{pending}\\
+Rattachement & \tbl{action\_requests.chat\_message\_id} via \fn{chat\_service.attach\_actions}\\
+Exposition & \cls{ActionRequestOut} dans \cls{ChatMessageOut} et \cls{IncidentTicketDetail}\\
+Interface & \cls{ActionProposal} (\file{frontend/src/components/ActionProposal.tsx})\\
+Exécution & \route{POST /storage/actions/\{id\}/confirm} et \fn{confirm\_and\_execute\_action}\\
+Refus & \route{POST /storage/actions/\{id\}/reject} + note d'incident\\
+Vérification & \fn{\_close\_the\_loop} + \file{services/incident\_verification.py}\\
+\bottomrule
+\end{longtable}
+
+\subsection{Le raisonnement derrière la séparation \texttt{DESTRUCTIVE} / \texttt{REMEDIATION}}
+
+Le commentaire de \file{server.py} explique pourquoi deux ensembles et non un :
+
+\begin{quote}
+\itshape
+« La distinction avec \texttt{DESTRUCTIVE\_TOOLS} n'est pas la même : un restore
+est destructif, relancer une sauvegarde ne l'est pas --- mais les deux changent
+l'état du système, et aucun des deux ne doit partir sur la seule décision du
+modèle. \texttt{DESTRUCTIVE\_TOOLS} continue de qualifier le risque dans
+l'audit. »
+\end{quote}
+
+\noindent
+Autrement dit : \texttt{REMEDIATION\_TOOLS} répond à « faut-il un humain ? »
+(oui pour les quatre), \texttt{DESTRUCTIVE\_TOOLS} répond à « quel niveau de
+risque ? » (HIGH pour un seul).
+
+\subsection{Ce qui rend le contournement difficile}
+
+\begin{enumerate}
+  \item \textbf{Le modèle ne peut pas exécuter directement.} L'aiguillage est un
+  test d'appartenance à un ensemble figé, en dur dans le code.
+  \item \textbf{Écrire l'appel en texte ne sert à rien.} Un JSON recopié dans la
+  réponse ne crée rien --- et \fn{\_recover\_written\_call} ne le transforme
+  qu'en \emph{proposition}, avec double validation de l'outil et de la cible.
+  \item \textbf{Le prompt le dit au modèle.} « never say a remediation has been
+  launched: it is waiting on a human decision. »
+  \item \textbf{Le résultat renvoyé au modèle le répète.} « Action NOT executed
+  \ldots{} Present it as a recommendation, never as a fact. »
+  \item \textbf{Sans utilisateur identifié, refus net.} Si \texttt{created\_by}
+  est \texttt{None}, l'agent renvoie
+  \texttt{\{"status": "denied", "reason": "confirmation\_required"\}} --- « on
+  refuse plutôt que de l'attribuer à quelqu'un au hasard ».
+  \item \textbf{Double exécution impossible.} Le test
+  \texttt{status != PENDING} lève une \cls{ValueError}, traduite en 404.
+  \item \textbf{Deux outils exigent en plus \texttt{confirm=True}} au niveau de
+  l'implémentation.
+\end{enumerate}
+
+\begin{warnbox}
+\textbf{La limite honnête à énoncer.} Les routes de \file{actions.py} n'exigent
+que \fn{get\_current\_user}, pas \fn{require\_role}. Un utilisateur authentifié
+avec le rôle \texttt{linux\_engineer} ne peut ni ouvrir le chat ni voir les
+incidents (ces routes sont protégées), mais s'il obtenait un identifiant
+d'action valide, la route \route{/confirm} ne le rejetterait pas. Ajouter
+\fn{require\_role} sur ce routeur serait le durcissement le plus rentable du
+projet.
+\end{warnbox}
+
+\subsection{Le workflow complet, en une table}
+
+\begin{longtable}{@{}p{0.7cm}p{3.7cm}p{4.3cm}p{5.7cm}@{}}
+\toprule
+\textbf{\#} & \textbf{Étape} & \textbf{Acteur} & \textbf{Trace laissée}\\
+\midrule
+\endhead
+1 & Demande utilisateur & Ingénieur & \tbl{chat\_messages} (rôle \texttt{user})\\
+2 & Lecture de la VM & Agent + MCP + SSH & \tbl{mcp\_calls} (\texttt{success})\\
+3 & Analyse & Groq & \tbl{chat\_messages} (rôle \texttt{assistant})\\
+4 & Proposition & \fn{\_propose\_action} & \tbl{action\_requests} (\texttt{pending})\\
+5 & Rattachement & \fn{attach\_actions} & \texttt{chat\_message\_id} renseigné\\
+6 & Affichage & \cls{ActionProposal} & ---\\
+7 & \textbf{Décision humaine} & \textbf{Ingénieur} & \texttt{confirmed\_by}, \texttt{confirmed\_at}\\
+8 & Exécution & MCP + SSH & \tbl{mcp\_calls} avec \texttt{action\_request\_id}\\
+9 & Résultat & \fn{confirm\_and\_execute\_action} & \texttt{status}, \texttt{result} (JSONB), \texttt{completed\_at}\\
+10 & Vérification & \fn{verify} & \tbl{mcp\_calls} (relecture) + \tbl{incident\_ticket\_notes}\\
+11 & Clôture & \fn{resolve\_ticket} & \texttt{status='resolved'}, \texttt{resolved\_at}, note\\
+\bottomrule
+\end{longtable}
+
+\begin{keybox}
+\textbf{Onze étapes, sept traces en base.} C'est ce qui permet de répondre, six
+mois plus tard, à la question « qui a lancé cette restauration, sur la foi de
+quel relevé, et qu'est-ce que ça a donné ? ».
+\end{keybox}

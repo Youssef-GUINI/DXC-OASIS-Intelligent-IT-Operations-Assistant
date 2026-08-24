@@ -13,6 +13,7 @@ reject_action_request/get_action ont été retirés. `confirm_and_execute_action
 reste `await` car il contient un vrai appel async vers mcp_client.call_tool.
 """
 
+import logging
 import uuid
 from typing import Optional
 
@@ -23,7 +24,9 @@ from app.api.deps import get_current_user, get_db
 from app.mcp.storage.client import StorageMCPClient
 from app.models.action_request import ActionRequest, ActionRequestStatus
 from app.schemas.incident import ActionRequestCreate, ActionRequestOut, ActionRequestRejection
-from app.services import incident_service
+from app.services import incident_service, incident_verification
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/storage/actions", tags=["actions"])
 
@@ -109,17 +112,66 @@ async def confirm_action(
         # marquer FAILED derrière un 200.
         raise HTTPException(
             status_code=503,
-            detail=f"Serveur MCP Storage indisponible, action non exécutée : {error}",
+            detail=f"Storage MCP server unavailable, action not executed: {error}",
         )
 
     try:
-        return await incident_service.confirm_and_execute_action(
+        action = await incident_service.confirm_and_execute_action(
             db, action_id=action_id, user_id=current_user.id, mcp_client=mcp,
         )
+        await _close_the_loop(db, action, user=current_user, mcp=mcp)
+        return action
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     finally:
         await mcp.stop()
+
+
+async def _close_the_loop(db: Session, action: ActionRequest, *, user, mcp) -> None:
+    """
+    Dernier maillon du cycle : vérifier sur la VM, puis clore si c'est vrai.
+
+    Une action exécutée sans erreur ne prouve rien : `systemctl start` réussit
+    à lancer un job qui échouera trois secondes plus tard. On relit donc
+    l'indicateur qui avait ouvert le ticket, et on ne referme que s'il est
+    redevenu sain -- sinon le ticket reste ouvert en disant pourquoi.
+
+    Aucun échec ici ne doit faire échouer la requête : l'action, elle, a bien
+    eu lieu, et la surveillance périodique repassera vérifier.
+    """
+    if action.incident_ticket_id is None:
+        return
+
+    ticket = incident_service.get_ticket(db, action.incident_ticket_id)
+    if ticket is None:
+        return
+
+    who = user.full_name or user.email
+    label = f"{action.action_type} sur {action.target}"
+
+    try:
+        if action.status == ActionRequestStatus.FAILED:
+            reason = (action.result or {}).get("error", "unknown reason")
+            incident_service.add_note(
+                db, ticket_id=ticket.id, author_id=user.id,
+                content=f'Action "{label}" confirmed by {who} but failed: {reason}',
+            )
+            return
+
+        verdict = await incident_verification.verify(
+            ticket, mcp=mcp, db=db, user_id=user.id
+        )
+        incident_service.add_note(
+            db, ticket_id=ticket.id, author_id=user.id,
+            content=f'Action "{label}" confirmed by {who} and executed. {verdict.detail}',
+        )
+        if verdict.resolved:
+            incident_service.resolve_ticket(
+                db, ticket, author_id=user.id,
+                reason=f"Incident closed automatically: {verdict.detail}",
+            )
+    except Exception:  # noqa: BLE001
+        logger.exception("Clôture du cycle impossible pour %s", ticket.ticket_number)
 
 
 @router.post("/{action_id}/reject", response_model=ActionRequestOut)
@@ -130,11 +182,25 @@ def reject_action(
     current_user=Depends(get_current_user),
 ):
     try:
-        return incident_service.reject_action_request(
+        action = incident_service.reject_action_request(
             db, action_id=action_id, user_id=current_user.id,
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+    # Un rejet est une décision, pas un non-événement : il doit rester lisible
+    # dans l'historique du ticket, avec son motif quand il y en a un.
+    if action.incident_ticket_id is not None:
+        who = current_user.full_name or current_user.email
+        motive = f" Reason: {payload.reason}" if payload.reason else ""
+        incident_service.add_note(
+            db,
+            ticket_id=action.incident_ticket_id,
+            author_id=current_user.id,
+            content=f'Action "{action.action_type} on {action.target}" '
+                    f"rejected by {who}.{motive}",
+        )
+    return action
 
 
 @router.get("/{action_id}", response_model=ActionRequestOut)
@@ -147,5 +213,5 @@ def get_action(
 
     action = db.get(ActionRequest, action_id)
     if action is None:
-        raise HTTPException(status_code=404, detail="Action introuvable")
+        raise HTTPException(status_code=404, detail="Action not found")
     return action

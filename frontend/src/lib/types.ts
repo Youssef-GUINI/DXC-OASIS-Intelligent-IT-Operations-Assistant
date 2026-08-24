@@ -41,6 +41,7 @@ export type BackupJob = {
   status: string;
   last_run: string | null;
   hours_since_last_success: number;
+  expected_interval_hours: number | null;
 };
 
 export type Backups = {
@@ -140,21 +141,49 @@ export type Incident = {
 
 export type RequestStatus = 'pending' | 'confirmed' | 'completed' | 'failed' | 'rejected';
 
-export type StorageRequest = {
+/**
+ * Une remédiation proposée par l'agent et pas encore exécutée.
+ *
+ * L'agent n'exécute jamais un outil qui modifie la VM : il enregistre cette
+ * intention, que l'ingénieur confirme ou rejette d'un clic. C'est le seul
+ * chemin d'exécution du système.
+ */
+export type ActionRequest = {
   id: string;
   action_type: string;
   target: string;
-  parameters: {
-    priority?: string;
-    description?: string;
-    justification?: string;
-    [key: string]: unknown;
-  };
+  parameters: Record<string, unknown>;
   status: RequestStatus;
   incident_ticket_id: string | null;
   created_at: string;
   completed_at: string | null;
   result: Record<string, unknown> | null;
+};
+
+/** Une entrée de la piste d'audit d'un incident. */
+export type IncidentNote = {
+  id: string;
+  content: string;
+  created_at: string;
+  author_name: string | null;
+};
+
+/**
+ * Le ticket et tout son cycle de vie : détection, diagnostic, actions
+ * proposées, confirmation, résolution. Chargé à l'ouverture du panneau ; la
+ * liste des incidents, elle, se contente d'`Incident`.
+ */
+export type IncidentDetail = Incident & {
+  mcp_data: Record<string, unknown>;
+  actions: ActionRequest[];
+  notes: IncidentNote[];
+  investigation_conversation_id: number | null;
+};
+
+export type Investigation = {
+  conversation_id: number;
+  created: boolean;
+  ticket: IncidentDetail;
 };
 
 export type DocumentStatus = 'pending' | 'indexed' | 'failed';
@@ -170,4 +199,62 @@ export type KnowledgeDocument = {
   error: string | null;
   created_at: string;
   indexed_at: string | null;
+};
+
+// --- Demandes entre l'ingénieur Storage et l'administrateur -----------------
+// À ne pas confondre avec ActionRequest ci-dessus, qui porte la confirmation
+// d'une remédiation MCP et vit sur la page Incidents et dans le chat.
+
+export type RequestDirection = 'engineer_to_admin' | 'admin_to_engineer';
+export type RequestPriority = 'low' | 'medium' | 'high' | 'critical';
+
+export type ServiceRequestStatus =
+  | 'pending'
+  | 'in_review'
+  | 'approved'
+  | 'rejected'
+  | 'acknowledged'
+  | 'in_progress'
+  | 'completed';
+
+export type UserBrief = {
+  id: number;
+  email: string;
+  full_name: string | null;
+  role: Role | null;
+};
+
+export type RequestAttachment = {
+  id: string;
+  filename: string;
+  content_type: string | null;
+  size_bytes: number;
+  uploader: UserBrief | null;
+  created_at: string;
+};
+
+export type ServiceRequest = {
+  id: string;
+  direction: RequestDirection;
+  title: string;
+  description: string | null;
+  request_type: string | null;
+  priority: RequestPriority;
+  status: ServiceRequestStatus;
+  creator: UserBrief | null;
+  assignee: UserBrief | null;
+  deadline: string | null;
+  administrator_response: string | null;
+  created_at: string;
+  updated_at: string;
+  /** Date de la décision (approuvée ou refusée) ; null tant qu'elle n'est pas prise. */
+  decided_at: string | null;
+  acknowledged_at: string | null;
+  completed_at: string | null;
+  attachment_count: number;
+};
+
+/** Une demande vue seule : elle seule détaille les fichiers joints. */
+export type ServiceRequestDetail = ServiceRequest & {
+  attachments: RequestAttachment[];
 };

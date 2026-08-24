@@ -106,5 +106,49 @@ class ActionRequestOut(BaseModel):
         from_attributes = True
 
 
+# ---------- Cycle de vie complet d'un ticket ----------
+
+class IncidentNoteOut(BaseModel):
+    """Une entrée de la piste d'audit du ticket."""
+
+    id: uuid.UUID
+    content: str
+    created_at: datetime
+    author_name: str | None = None
+
+    class Config:
+        from_attributes = True
+
+
+class IncidentTicketDetail(IncidentTicketOut):
+    """
+    Le ticket et tout son cycle de vie.
+
+    La liste des incidents reste sur IncidentTicketOut : y joindre notes et
+    actions ferait autant de requêtes supplémentaires que de lignes affichées,
+    pour des données que la liste ne montre pas.
+    """
+
+    mcp_data: dict[str, Any] = Field(default_factory=dict)
+    actions: list[ActionRequestOut] = Field(default_factory=list)
+    notes: list[IncidentNoteOut] = Field(default_factory=list)
+
+    # Fil d'investigation de l'utilisateur courant sur ce ticket, s'il existe :
+    # le bouton « Investigate » y renvoie directement au lieu d'en ouvrir un
+    # second et de relancer l'agent.
+    investigation_conversation_id: int | None = None
+
+
+class InvestigationOut(BaseModel):
+    """Réponse au lancement d'une investigation."""
+
+    # Le fil à ouvrir côté interface. `created` distingue un fil qui vient
+    # d'être analysé d'un fil simplement rouvert : sans lui, l'interface ne
+    # saurait pas s'il y a du neuf à lire.
+    conversation_id: int
+    created: bool
+    ticket: IncidentTicketDetail
+
+
 class ActionRequestRejection(BaseModel):
     reason: str | None = None

@@ -227,3 +227,7 @@ requests
 pypdf
 mcp==2.0.0
 psutil
+paramiko
+chromadb
+sentence-transformers
+email-validator

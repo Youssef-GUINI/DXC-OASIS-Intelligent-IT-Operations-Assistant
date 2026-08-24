@@ -35,6 +35,8 @@ class BackupJobOut(BaseModel):
     status: str
     last_run: str | None
     hours_since_last_success: int
+    # Cadence lue sur le timer systemd. None quand il n'en déclare pas.
+    expected_interval_hours: int | None = None
 
 
 class BackupsOut(BaseModel):

@@ -9,6 +9,7 @@ import {
   Sparkles,
   Trash2,
 } from 'lucide-react';
+import { ActionProposal } from '@/components/ActionProposal';
 import { Logo } from '@/components/Logo';
 import { Button } from '@/components/ui/Button';
 import { TextField } from '@/components/ui/Field';
@@ -19,6 +20,7 @@ import { api, ApiError } from '@/lib/api';
 import { cn } from '@/lib/cn';
 import { formatRelativeTime } from '@/lib/format';
 import { useAuth } from '@/auth/AuthContext';
+import type { ActionRequest } from '@/lib/types';
 
 /** Un fil de discussion, tel que le backend le conserve. */
 type Conversation = {
@@ -26,6 +28,8 @@ type Conversation = {
   title: string;
   created_at: string;
   updated_at: string;
+  /** Renseigné pour un fil ouvert depuis un incident. */
+  incident_ticket_id: string | null;
 };
 
 type ChatMessageDto = {
@@ -33,6 +37,7 @@ type ChatMessageDto = {
   role: 'user' | 'assistant';
   content: string;
   created_at: string;
+  action_requests: ActionRequest[];
 };
 
 type ChatTurn = {
@@ -49,6 +54,12 @@ type Message = {
   text: string;
   at: Date;
   failed?: boolean;
+  /**
+   * Remédiations que ce message propose. Elles s'affichent en boutons sous la
+   * bulle : annoncées en texte seul, elles se liraient comme des actions déjà
+   * lancées, alors qu'aucune ne part sans le clic de l'ingénieur.
+   */
+  actions?: ActionRequest[];
 };
 
 const SUGGESTIONS = [
@@ -65,6 +76,7 @@ function toMessage(dto: ChatMessageDto): Message {
     author: dto.role === 'user' ? 'user' : 'oasis',
     text: dto.content,
     at: new Date(dto.created_at),
+    actions: dto.action_requests ?? [],
   };
 }
 
@@ -431,6 +443,28 @@ export default function ChatPage() {
     }
   }
 
+  /**
+   * Remplace une proposition par son état final après le clic.
+   *
+   * On réécrit l'action dans le message plutôt que de recharger le fil : le
+   * reste de la conversation n'a pas bougé, et un rechargement complet ferait
+   * sauter la position de lecture.
+   */
+  function settleAction(messageId: string, updated: ActionRequest) {
+    setMessages((current) =>
+      current.map((message) =>
+        message.id === messageId
+          ? {
+              ...message,
+              actions: message.actions?.map((action) =>
+                action.id === updated.id ? updated : action,
+              ),
+            }
+          : message,
+      ),
+    );
+  }
+
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
     void send(draft);
@@ -564,6 +598,15 @@ export default function ChatPage() {
                           {message.text}
                         </p>
                       </div>
+                      {message.actions?.map((action) => (
+                        <div key={action.id} className="mt-2">
+                          <ActionProposal
+                            action={action}
+                            onSettled={(updated) => settleAction(message.id, updated)}
+                          />
+                        </div>
+                      ))}
+
                       <div className="mt-1 flex items-center gap-2">
                         <Timestamp at={message.at} />
                         {!message.failed && (

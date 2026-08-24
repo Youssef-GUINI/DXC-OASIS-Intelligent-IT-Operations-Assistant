@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { CheckCircle2, ShieldCheck, Sparkles } from 'lucide-react';
+import { ActionProposal } from '@/components/ActionProposal';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { Badge, SEVERITY_TONE, STATUS_TONE, StatusDot } from '@/components/ui/Badge';
@@ -12,7 +13,7 @@ import { api } from '@/lib/api';
 import { cn } from '@/lib/cn';
 import { formatDateTime, formatRelativeTime, humanize } from '@/lib/format';
 import { useResource } from '@/lib/useResource';
-import type { Incident } from '@/lib/types';
+import type { Incident, IncidentDetail, Investigation } from '@/lib/types';
 
 type Filter = 'all' | 'critical' | 'high' | 'medium' | 'low' | 'resolved';
 
@@ -32,13 +33,74 @@ function queryFor(filter: Filter): string {
   return `?severity=${filter}`;
 }
 
+/**
+ * Les cinq temps par lesquels passe tout incident.
+ *
+ * L'ordre n'est pas décoratif : c'est le contrat de l'application. Rien ne
+ * s'exécute sur la VM sans être passé par « Action proposée » puis par le clic
+ * humain de « Confirmation », et un ticket ne se referme qu'une fois l'effet
+ * vérifié. L'afficher permet de voir, sur n'importe quel ticket, où il en est.
+ */
+const LIFECYCLE = [
+  { key: 'detected', label: 'Detected' },
+  { key: 'diagnosed', label: 'Diagnosed' },
+  { key: 'proposed', label: 'Action proposed' },
+  { key: 'confirmed', label: 'Confirmed' },
+  { key: 'resolved', label: 'Resolved' },
+] as const;
+
+function reachedStage(incident: IncidentDetail): number {
+  if (incident.status === 'resolved' || incident.status === 'closed') return 4;
+  if (incident.actions.some((action) => action.status === 'completed')) return 3;
+  if (incident.actions.length > 0) return 2;
+  if (incident.root_cause) return 1;
+  return 0;
+}
+
 export default function IncidentsPage() {
   const [filter, setFilter] = useState<Filter>('all');
   const [selected, setSelected] = useState<Incident | null>(null);
+  const [detail, setDetail] = useState<IncidentDetail | null>(null);
+  const [detailError, setDetailError] = useState<string | null>(null);
   const [resolving, setResolving] = useState(false);
+  const [investigating, setInvestigating] = useState(false);
   const navigate = useNavigate();
   const notify = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
+
+  const { data, error, loading, reload } = useResource<Incident[]>(
+    () => api.get<Incident[]>(`/incidents${queryFor(filter)}`),
+    [filter],
+  );
+
+  /**
+   * Charge le cycle de vie complet du ticket ouvert.
+   *
+   * La liste ne transporte ni les actions ni les notes : les joindre à chaque
+   * ligne coûterait autant de requêtes que d'incidents affichés, pour des
+   * données que la liste ne montre pas. Le panneau, lui, en a besoin.
+   */
+  const loadDetail = useCallback(
+    async (incidentId: string) => {
+      setDetailError(null);
+      try {
+        setDetail(await api.get<IncidentDetail>(`/incidents/${incidentId}`));
+      } catch (caught) {
+        setDetail(null);
+        setDetailError(caught instanceof Error ? caught.message : "Couldn't load this incident");
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (selected === null) {
+      setDetail(null);
+      setDetailError(null);
+      return;
+    }
+    void loadDetail(selected.id);
+  }, [selected, loadDetail]);
 
   // Arrivée depuis la recherche globale : le ticket est rechargé par son id
   // plutôt que cherché dans la liste, qui peut être filtrée ou tronquée.
@@ -69,15 +131,33 @@ export default function IncidentsPage() {
     };
   }, [requestedIncident, setSearchParams, notify]);
 
-  const { data, error, loading, reload } = useResource<Incident[]>(
-    () => api.get<Incident[]>(`/incidents${queryFor(filter)}`),
-    [filter],
-  );
+  /**
+   * Ouvre le fil d'investigation du ticket et y bascule.
+   *
+   * L'appel est long — l'agent lit la VM en SSH puis interroge le modèle —
+   * d'où le bouton en attente plutôt qu'une navigation immédiate vers un fil
+   * vide : l'ingénieur arrive sur un diagnostic déjà écrit.
+   */
+  async function investigate(incident: Incident) {
+    setInvestigating(true);
+    try {
+      const investigation = await api.post<Investigation>(`/incidents/${incident.id}/investigate`);
+      navigate(`/storage/chat?conversation=${investigation.conversation_id}`);
+    } catch (caught) {
+      notify({
+        tone: 'error',
+        title: "OASIS couldn't investigate this incident",
+        detail: caught instanceof Error ? caught.message : undefined,
+      });
+    } finally {
+      setInvestigating(false);
+    }
+  }
 
   async function markResolved(incident: Incident) {
     setResolving(true);
     try {
-      await api.patch<Incident>(`/incidents/${incident.id}`, { status: 'resolved' });
+      await api.patch<IncidentDetail>(`/incidents/${incident.id}`, { status: 'resolved' });
       notify({ title: 'Incident resolved', detail: `${incident.ticket_number} is now closed out.` });
       setSelected(null);
       reload();
@@ -186,8 +266,8 @@ export default function IncidentsPage() {
             <span className="flex flex-wrap items-center gap-2">
               <span className="font-mono text-[12px]">{selected.ticket_number}</span>
               <Badge tone={SEVERITY_TONE[selected.severity] ?? 'neutral'}>{selected.severity}</Badge>
-              <Badge tone={STATUS_TONE[selected.status] ?? 'neutral'}>
-                {humanize(selected.status)}
+              <Badge tone={STATUS_TONE[(detail ?? selected).status] ?? 'neutral'}>
+                {humanize((detail ?? selected).status)}
               </Badge>
             </span>
           )
@@ -197,10 +277,13 @@ export default function IncidentsPage() {
             <>
               <Button
                 variant="primary"
+                loading={investigating}
                 icon={<Sparkles className="h-4 w-4" />}
-                onClick={() => navigate('/storage/chat')}
+                onClick={() => void investigate(selected)}
               >
-                Investigate with OASIS
+                {detail?.investigation_conversation_id
+                  ? 'Reopen investigation'
+                  : 'Investigate with OASIS'}
               </Button>
               <Button onClick={() => navigate('/storage/requests')}>Create Request</Button>
               {selected.status !== 'resolved' && selected.status !== 'closed' && (
@@ -217,7 +300,18 @@ export default function IncidentsPage() {
           )
         }
       >
-        {selected && <IncidentDetail incident={selected} />}
+        {selected && (
+          <IncidentBody
+            incident={selected}
+            detail={detail}
+            detailError={detailError}
+            onRetry={() => void loadDetail(selected.id)}
+            onActionSettled={() => {
+              void loadDetail(selected.id);
+              reload();
+            }}
+          />
+        )}
       </Drawer>
     </div>
   );
@@ -232,17 +326,78 @@ function DetailRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function IncidentDetail({ incident }: { incident: Incident }) {
+/** Où en est le ticket dans les cinq temps du cycle. */
+function Lifecycle({ incident }: { incident: IncidentDetail }) {
+  const reached = reachedStage(incident);
+
+  return (
+    <Card>
+      <div className="p-5">
+        <h3 className="card-title">Lifecycle</h3>
+        <ol className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-2">
+          {LIFECYCLE.map((stage, index) => {
+            const done = index <= reached;
+            return (
+              <li key={stage.key} className="flex items-center gap-2">
+                <span
+                  className={cn(
+                    'flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold',
+                    done ? 'bg-brand-500 text-white' : 'bg-slate-100 text-ink-400',
+                  )}
+                >
+                  {index + 1}
+                </span>
+                <span
+                  className={cn(
+                    'text-[12px]',
+                    done ? 'font-medium text-ink-900' : 'text-ink-400',
+                  )}
+                >
+                  {stage.label}
+                </span>
+                {index < LIFECYCLE.length - 1 && (
+                  <span className="hidden h-px w-4 bg-line sm:block" aria-hidden />
+                )}
+              </li>
+            );
+          })}
+        </ol>
+      </div>
+    </Card>
+  );
+}
+
+function IncidentBody({
+  incident,
+  detail,
+  detailError,
+  onRetry,
+  onActionSettled,
+}: {
+  incident: Incident;
+  detail: IncidentDetail | null;
+  detailError: string | null;
+  onRetry: () => void;
+  onActionSettled: () => void;
+}) {
+  // Le ticket de la liste s'affiche immédiatement ; le cycle de vie complet
+  // arrive une requête plus tard. Rien ne clignote entre-temps.
+  const current = detail ?? incident;
+  const pendingActions = detail?.actions.filter((action) => action.status === 'pending') ?? [];
+  const settledActions = detail?.actions.filter((action) => action.status !== 'pending') ?? [];
+
   return (
     <div className="space-y-4">
+      {detail && <Lifecycle incident={detail} />}
+
       <Card>
         <dl className="grid grid-cols-2 gap-4 p-5">
-          <DetailRow label="Affected resource" value={incident.affected_system} />
-          <DetailRow label="Raised" value={formatDateTime(incident.created_at)} />
-          <DetailRow label="Status" value={humanize(incident.status)} />
+          <DetailRow label="Affected resource" value={current.affected_system} />
+          <DetailRow label="Raised" value={formatDateTime(current.created_at)} />
+          <DetailRow label="Status" value={humanize(current.status)} />
           <DetailRow
             label="Resolved"
-            value={incident.resolved_at ? formatDateTime(incident.resolved_at) : 'Not yet'}
+            value={current.resolved_at ? formatDateTime(current.resolved_at) : 'Not yet'}
           />
         </dl>
       </Card>
@@ -251,35 +406,39 @@ function IncidentDetail({ incident }: { incident: Incident }) {
         <div className="p-5">
           <h3 className="card-title">What happened</h3>
           <p className="mt-2 whitespace-pre-wrap text-[13px] leading-relaxed text-ink-700">
-            {incident.description}
+            {current.description}
           </p>
         </div>
       </Card>
 
-      {(incident.root_cause || incident.impact_summary) && (
+      {detailError && (
+        <ErrorState message={detailError} onRetry={onRetry} />
+      )}
+
+      {(current.root_cause || current.impact_summary) && (
         <Card className="border-accent-200 bg-accent-50">
           <div className="p-5">
             <h3 className="flex items-center gap-2 card-title">
               <Sparkles className="h-4 w-4 text-accent-500" />
               OASIS Analysis
             </h3>
-            {incident.root_cause && (
+            {current.root_cause && (
               <div className="mt-3">
                 <p className="text-[12px] font-medium uppercase tracking-wide text-accent-600">
                   Likely root cause
                 </p>
                 <p className="mt-1 text-[13px] leading-relaxed text-ink-700">
-                  {incident.root_cause}
+                  {current.root_cause}
                 </p>
               </div>
             )}
-            {incident.impact_summary && (
+            {current.impact_summary && (
               <div className="mt-3">
                 <p className="text-[12px] font-medium uppercase tracking-wide text-accent-600">
                   Impact
                 </p>
                 <p className="mt-1 text-[13px] leading-relaxed text-ink-700">
-                  {incident.impact_summary}
+                  {current.impact_summary}
                 </p>
               </div>
             )}
@@ -287,12 +446,34 @@ function IncidentDetail({ incident }: { incident: Incident }) {
         </Card>
       )}
 
-      {incident.recommendations.length > 0 && (
+      {!current.root_cause && (
+        <Card>
+          <div className="p-5">
+            <p className="text-[13px] leading-relaxed text-ink-500">
+              No diagnosis yet. "Investigate with OASIS" opens a thread where the agent reads the
+              VM journals, states the root cause and proposes a remediation for you to confirm.
+            </p>
+          </div>
+        </Card>
+      )}
+
+      {pendingActions.length > 0 && (
+        <Card>
+          <div className="space-y-3 p-5">
+            <h3 className="card-title">Waiting on your decision</h3>
+            {pendingActions.map((action) => (
+              <ActionProposal key={action.id} action={action} onSettled={onActionSettled} />
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {current.recommendations.length > 0 && (
         <Card>
           <div className="p-5">
             <h3 className="card-title">Recommended next steps</h3>
             <ol className="mt-3 space-y-2.5">
-              {incident.recommendations.map((recommendation, index) => (
+              {current.recommendations.map((recommendation, index) => (
                 <li key={index} className="flex gap-3">
                   <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand-50 text-[11px] font-semibold text-brand-700">
                     {recommendation.order ?? index + 1}
@@ -300,6 +481,35 @@ function IncidentDetail({ incident }: { incident: Incident }) {
                   <span className="text-[13px] leading-relaxed text-ink-700">
                     {recommendation.description ?? JSON.stringify(recommendation)}
                   </span>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </Card>
+      )}
+
+      {settledActions.length > 0 && (
+        <Card>
+          <div className="space-y-3 p-5">
+            <h3 className="card-title">Actions already decided</h3>
+            {settledActions.map((action) => (
+              <ActionProposal key={action.id} action={action} />
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {detail && detail.notes.length > 0 && (
+        <Card>
+          <div className="p-5">
+            <h3 className="card-title">History</h3>
+            <ol className="mt-3 space-y-3">
+              {detail.notes.map((note) => (
+                <li key={note.id} className="border-l-2 border-line pl-3">
+                  <p className="text-[13px] leading-relaxed text-ink-700">{note.content}</p>
+                  <p className="mt-0.5 text-[11px] text-ink-400">
+                    {note.author_name ?? 'OASIS'} · {formatDateTime(note.created_at)}
+                  </p>
                 </li>
               ))}
             </ol>

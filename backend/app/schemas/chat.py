@@ -1,10 +1,12 @@
 """Schémas du chat Storage."""
 
+import uuid
 from datetime import datetime
 
 from pydantic import BaseModel, Field
 
 from app.models.chat_message import TITLE_MAX_LENGTH
+from app.schemas.incident import ActionRequestOut
 
 
 class ChatMessageOut(BaseModel):
@@ -12,6 +14,11 @@ class ChatMessageOut(BaseModel):
     role: str
     content: str
     created_at: datetime
+
+    # Actions que ce message propose. L'interface les rend sous forme de
+    # boutons Confirmer/Rejeter : une remédiation annoncée en texte seul
+    # laisserait croire qu'elle a été lancée, alors qu'elle attend un clic.
+    action_requests: list[ActionRequestOut] = []
 
     class Config:
         from_attributes = True
@@ -22,6 +29,10 @@ class ConversationOut(BaseModel):
     title: str
     created_at: datetime
     updated_at: datetime
+
+    # Renseigné pour un fil ouvert depuis un incident : l'interface y affiche
+    # le numéro du ticket et un retour vers sa fiche.
+    incident_ticket_id: uuid.UUID | None = None
 
     class Config:
         from_attributes = True

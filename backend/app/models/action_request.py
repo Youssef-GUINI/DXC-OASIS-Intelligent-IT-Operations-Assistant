@@ -14,7 +14,7 @@ sur simple texte "oui" dans le chat.
 import enum
 import uuid
 
-from sqlalchemy import Column, DateTime, Enum, ForeignKey, Integer, String, func
+from sqlalchemy import BigInteger, Column, DateTime, Enum, ForeignKey, Integer, String, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 
@@ -45,6 +45,17 @@ class ActionRequest(Base):
 
     incident_ticket_id = Column(UUID(as_uuid=True), ForeignKey("incident_tickets.id"), nullable=True)
 
+    # Message du chat d'investigation qui a proposé cette action. Sert à
+    # réafficher les boutons Confirmer/Rejeter quand on rouvre le fil : sans
+    # lui, une proposition disparaîtrait de l'écran au rechargement alors
+    # qu'elle reste en attente en base.
+    chat_message_id = Column(
+        BigInteger,
+        ForeignKey("chat_messages.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
     result = Column(JSONB, nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -54,4 +65,5 @@ class ActionRequest(Base):
     requester = relationship("User", foreign_keys=[requested_by])
     confirmer = relationship("User", foreign_keys=[confirmed_by])
     incident_ticket = relationship("IncidentTicket", back_populates="action_requests")
+    chat_message = relationship("ChatMessage", back_populates="action_requests")
     mcp_calls = relationship("MCPCall", back_populates="action_request")

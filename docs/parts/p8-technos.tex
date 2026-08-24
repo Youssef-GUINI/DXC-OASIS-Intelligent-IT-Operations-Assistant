@@ -1,0 +1,224 @@
+% =====================================================================
+\chapter{Les technologies utilisées}
+\label{ch:technos}
+
+Chaque technologie est justifiée par ce qu'elle apporte \emph{à ce projet},
+avec le fichier qui la met en œuvre. Aucune définition générale.
+
+% =====================================================================
+\section{Backend}
+
+\subsection{Python}
+\textbf{Où} : tout le backend. Le README annonce Python 3.13.\\
+\textbf{Pourquoi ici} : c'est la seule langue où cohabitent naturellement le SDK
+MCP officiel, un client SSH (\texttt{paramiko}), un ORM mature (SQLAlchemy) et
+les bibliothèques d'embeddings (\texttt{sentence-transformers}). Le projet
+utilise aussi des constructions récentes du langage : \texttt{str | None},
+\texttt{asyncio.to\_thread}, \texttt{@dataclass}, \texttt{match} implicite via
+les dictionnaires de dispatch.
+
+\subsection{FastAPI (+ Starlette, Uvicorn)}
+\textbf{Où} : \file{app/main.py}, les 11 routeurs.\\
+\textbf{Pourquoi ici} : trois raisons visibles dans le code.
+\begin{itemize}
+  \item \textbf{L'injection de dépendances} rend le contrôle d'accès
+  déclaratif : \texttt{current\_user: User = Depends(require\_role(...))} suffit
+  à protéger une route.
+  \item \textbf{Le mélange \texttt{def} / \texttt{async def}} est exploité
+  volontairement. Les routes qui font du SSH bloquant restent en \texttt{def}
+  pour partir dans le threadpool (\file{dashboard.py}, \file{reports.py}) ; les
+  routes qui attendent l'agent sont en \texttt{async def} (\file{storage.py},
+  \route{/investigate}, \route{/confirm}). Les commentaires l'expliquent
+  fichier par fichier.
+  \item \textbf{Le \fn{lifespan}} héberge les trois tâches de fond avec
+  annulation propre.
+\end{itemize}
+
+\subsection{Pydantic v2 et pydantic-settings}
+\textbf{Où} : \file{app/schemas/}, \file{app/core/config.py}.\\
+\textbf{Pourquoi ici} : la validation d'entrée est la première barrière.
+\cls{ServiceRequestCreate} impose \texttt{title} entre 1 et 200 caractères ;
+\cls{LoginRequest} valide le format d'e-mail (via \texttt{email-validator}) ;
+\cls{ChatRequest} accepte un \texttt{conversation\_id} optionnel typé.
+Côté configuration, \cls{Settings} \textbf{refuse de démarrer} si
+\texttt{database\_url}, \texttt{jwt\_secret\_key} ou \texttt{groq\_api\_key}
+manquent --- une panne au démarrage plutôt qu'à la première requête.
+
+\begin{infobox}
+Les schémas séparent volontairement la liste du détail : \cls{IncidentTicketOut}
+pour la liste, \cls{IncidentTicketDetail} pour la fiche. Le docstring justifie :
+« y joindre notes et actions ferait autant de requêtes supplémentaires que de
+lignes affichées, pour des données que la liste ne montre pas. »
+\end{infobox}
+
+\subsection{SQLAlchemy (mode synchrone)}
+\textbf{Où} : \file{app/models/}, \file{app/database/session.py}.\\
+\textbf{Pourquoi \emph{synchrone}} : c'est un choix, et il est documenté. Les
+docstrings de \file{incident\_service.py}, \file{mcp\_audit.py} et
+\file{actions.py} portent tous la trace d'un correctif : une première version
+avait été écrite pour \texttt{AsyncSession}, avec des \texttt{await
+db.commit()} qui échouaient (« sur une session sync, \fn{db.commit()} renvoie
+\texttt{None} et \texttt{await None} lève un \texttt{TypeError} »). Le projet a
+convergé vers le synchrone, et FastAPI compense en exécutant les routes
+\texttt{def} dans un threadpool.
+
+\subsection{Alembic}
+\textbf{Où} : \file{backend/alembic/}, 14 révisions.\\
+\textbf{Pourquoi ici} : le schéma a beaucoup évolué (ajout du chat, des
+conversations multiples, des demandes, des pièces jointes, du lien
+investigation). Une migration comme \file{b6d0f3a91c47} fait ce qu'un
+\texttt{create\_all} ne saurait pas faire : ajouter un index unique
+\emph{partiel} PostgreSQL (\texttt{postgresql\_where}).
+
+\subsection{PostgreSQL 16}
+\textbf{Où} : \file{docker-compose.yml}, tous les modèles.\\
+\textbf{Pourquoi ici} : JSONB interrogeable (\texttt{mcp\_data[key].astext}),
+UUID natif, types ENUM, et surtout \texttt{date\_bin} --- fonction PostgreSQL
+14+ sans laquelle le graphique de performance devrait être agrégé en Python.
+
+\subsection{python-jose et passlib[bcrypt]}
+\textbf{Où} : \file{app/core/security.py}.\\
+\textbf{Pourquoi ici} : JWT HS256 pour une API sans état, et bcrypt pour ne
+jamais stocker un mot de passe en clair. Le jeton porte le rôle, mais le contrôle
+d'accès relit le rôle en base --- un changement de rôle prend effet
+immédiatement.
+
+\subsection{MCP (SDK officiel, version 2.0.0)}
+\textbf{Où} : \file{app/mcp/storage/}.\\
+\textbf{Pourquoi ici} : c'est le protocole qui permet d'exposer des capacités à
+un modèle \emph{sans coder à la main} un catalogue de fonctions, un schéma JSON
+par paramètre et un routeur d'appels. Le décorateur \texttt{mcp.tool()} dérive
+tout des annotations de type et des docstrings. Le transport \texttt{stdio}
+isole en outre les outils dans un processus séparé.
+
+\subsection{Paramiko}
+\textbf{Où} : \file{app/mcp/storage/ssh.py}.\\
+\textbf{Pourquoi ici} : parce que le projet a fait le choix de \textbf{ne rien
+simuler}. Il n'existe pas d'API REST sur une VM Ubuntu pour lire \texttt{df} ou
+\texttt{lvs} : SSH est le protocole d'administration réel. Authentification par
+clé, \texttt{AutoAddPolicy}, timeouts de 5\,s (connexion) et 15\,s (commande).
+
+\subsection{Groq (SDK \texttt{groq})}
+\textbf{Où} : \file{app/llm/groq\_client.py}.\\
+\textbf{Pourquoi ici} : deux raisons opérationnelles. La \textbf{latence} ---
+un ingénieur qui investigue un incident n'attend pas ; et le \textbf{tool
+calling natif}, compatible avec le format OpenAI, ce qui permet de convertir le
+catalogue MCP en \texttt{tools} d'une seule fonction. Le client essaie
+successivement plusieurs modèles et retient le premier qui répond.
+
+\subsection{ChromaDB}
+\textbf{Où} : \file{app/rag/vectorstore.py}, conteneur \texttt{chromadb/chroma}.\\
+\textbf{Pourquoi ici} : la base de connaissances est petite (quatre documents
+d'origine plus les dépôts du Data Hub). Chroma s'installe en un conteneur,
+accepte des embeddings fournis de l'extérieur, et supporte \texttt{upsert} ---
+ce qui rend l'indexation relançable et la suppression d'un document possible.
+
+\subsection{sentence-transformers}
+\textbf{Où} : \file{app/rag/embedding\_service.py}.\\
+\textbf{Pourquoi ce modèle précis} : le fichier l'explique. « la base de
+connaissances Storage est en anglais (NetApp, Veeam, TrueNAS, AWS) alors que les
+ingénieurs posent leurs questions en français \ldots{} Un modèle anglophone comme
+\texttt{bge-small-en-v1.5} place ces deux langues dans des régions éloignées de
+l'espace vectoriel : la question ne retrouve pas le passage qui y répond. »
+D'où \texttt{intfloat/multilingual-e5-small}, avec ses préfixes asymétriques.
+
+\subsection{ReportLab}
+\textbf{Où} : \file{app/services/report\_service.py}.\\
+\textbf{Pourquoi ReportLab et pas WeasyPrint} --- le docstring tranche :
+« WeasyPrint s'appuie sur les bibliothèques GTK (libgobject, pango, cairo) qui
+ne sont pas installées avec pip sous Windows, et son import échoue sur le poste
+de développement. »
+
+\begin{warnbox}
+\textbf{Détail à corriger un jour.} \texttt{reportlab} figure dans
+\file{requirements.lock.txt} mais \textbf{pas} dans \file{requirements.txt}.
+Une installation faite depuis le seul \file{requirements.txt} ne pourrait pas
+générer de rapport. C'est une observation, pas une supposition : la ligne est
+absente.
+\end{warnbox}
+
+\subsection{pypdf}
+\textbf{Où} : extraction du texte des PDF déposés au Data Hub.\\
+\textbf{Pourquoi ici} : sans couche texte, pas d'indexation --- et le service le
+dit à l'utilisateur en lui suggérant un OCR.
+
+% =====================================================================
+\section{Frontend}
+
+\begin{longtable}{@{}p{3.2cm}p{2.0cm}p{9.5cm}@{}}
+\toprule
+\textbf{Technologie} & \textbf{Version} & \textbf{Pourquoi dans ce projet}\\
+\midrule
+\endhead
+React & 18.3 & Interface fortement dynamique : un fil de chat qui grandit, des propositions d'action qui changent d'état après un clic, un drawer d'incident. L'état local suffit, aucun Redux n'est nécessaire\\
+TypeScript & 5.7 & \file{lib/types.ts} (259 lignes) reproduit les schémas Pydantic. Renommer un champ côté backend casse la compilation côté frontend --- c'est le seul contrat automatique entre les deux moitiés du projet\\
+Vite & 5.4 & Rechargement instantané, et surtout le \textbf{proxy} \route{/api} \arrowto{} \texttt{127.0.0.1:8000} qui supprime tout problème CORS en développement\\
+TailwindCSS & 3.4 & Cohérence visuelle sans feuille de style séparée. Une palette \texttt{brand} / \texttt{ink} / \texttt{accent} / \texttt{danger} est réutilisée jusque dans les rapports PDF\\
+react-router-dom & 6.30 & Routes imbriquées : \cls{RequireAuth} est une route parente qui rend \cls{AppLayout}, les pages sont ses enfants\\
+recharts & 2.15 & Un seul graphique (\cls{PerformanceChart}), mais avec trois séries et trois plages temporelles\\
+lucide-react & 0.475 & Icônes cohérentes dans la sidebar, les badges et les boutons\\
+clsx + tailwind-merge & --- & \fn{cn()} : composer des classes conditionnelles sans conflit Tailwind\\
+\bottomrule
+\end{longtable}
+
+% =====================================================================
+\section{Infrastructure et outillage}
+
+\subsection{Docker et Docker Compose}
+\textbf{Où} : \file{docker-compose.yml}.\\
+\textbf{Ce qui est réellement conteneurisé} : \texttt{postgres:16} (avec
+\texttt{healthcheck} \texttt{pg\_isready} et volume nommé) et
+\texttt{chromadb/chroma:latest} (port 8001 exposé, volume nommé).\\
+\textbf{Pourquoi ici} : ces deux services sont pénibles à installer nativement,
+surtout sous Windows. Le backend et le frontend, eux, tournent en local.
+
+\subsection{SSH}
+\textbf{Pourquoi ici} : c'est le protocole d'administration de la VM. Le projet
+n'installe aucun agent sur la machine cible : il exécute les mêmes commandes
+qu'un ingénieur taperait.
+
+\subsection{Technologies Linux mobilisées sur la VM}
+
+\begin{longtable}{@{}p{3.4cm}p{11.4cm}@{}}
+\toprule
+\textbf{Technologie} & \textbf{Rôle dans le projet}\\
+\midrule
+\endhead
+LVM & Volumes logiques, snapshots (\texttt{lvcreate -{}-snapshot}), restauration (\texttt{lvconvert -{}-merge}). Lu par \texttt{lvs}\\
+systemd & Les jobs de sauvegarde \emph{sont} des timers systemd. \texttt{list-timers}, \texttt{show}, \texttt{start}, les drop-ins et \texttt{revert}\\
+journald & \fn{get\_backup\_logs} lit \texttt{journalctl -o short-iso}\\
+\texttt{/proc/diskstats} & Source unique des métriques de performance\\
+\texttt{df} & Source unique de la capacité\\
+restic & Le logiciel de sauvegarde réel ; \fn{repair\_backup\_repository} sait lire l'état d'un dépôt\\
+MinIO & Cible objet S3 du laboratoire, avec Object Lock\\
+NFS / Samba & Partages du laboratoire NAS\\
+\bottomrule
+\end{longtable}
+
+\begin{keybox}
+\textbf{L'argument de fond, à retenir pour la soutenance.} Le choix
+\texttt{systemd} + \texttt{restic} + \texttt{LVM} n'est pas un pis-aller : ce
+sont les briques que l'outil interroge \emph{réellement}. Chaque relevé affiché
+correspond à une commande qu'un jury pourrait rejouer lui-même en SSH sur la
+VM.
+\end{keybox}
+
+% =====================================================================
+\section{Ce qui est déclaré mais pas utilisé}
+
+Un point d'honnêteté qui vaut mieux qu'une question embarrassante.
+
+\begin{longtable}{@{}p{3.6cm}p{11.2cm}@{}}
+\toprule
+\textbf{Élément} & \textbf{Statut réel}\\
+\midrule
+\endhead
+Anthropic Claude & Clé déclarée dans \cls{Settings}, \file{llm\_router.py} lève \texttt{NotImplementedError}. \textbf{Non branché}\\
+\file{requirements.txt} & Contient un très grand nombre de paquets sans rapport (Jupyter, Streamlit, MLflow, XGBoost, OpenCV, Flask, Plotly\ldots), vestiges d'un environnement de travail global. La liste réellement nécessaire est bien plus courte\\
+WeasyPrint & Présent dans les dépendances, remplacé par ReportLab pour la raison ci-dessus\\
+\file{base\_persona.py}, \file{llm\_router.py}, \file{rbac\_middleware.py} & Code valide, importé par personne\\
+\texttt{DESTRUCTIVE\_TOOLS}, \fn{risk\_for}, \fn{invoke} & Définis, jamais appelés\\
+\tbl{request\_messages} & Table conservée, plus alimentée\\
+Persona Linux & Le README l'annonce, et un commit récent (\texttt{df219f23}) porte « retrait de la persona Linux ». Seul le persona Storage existe dans le code\\
+\bottomrule
+\end{longtable}

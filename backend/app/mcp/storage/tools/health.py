@@ -6,7 +6,8 @@ sans aucun raisonnement LLM. Sert au dashboard et de première étape à
 analyze_incident.
 
 Les alertes sont calculées ici, de façon déterministe, à partir de seuils fixes
-— jamais par le modèle.
+pour la capacité et de la cadence propre à chaque timer pour les sauvegardes —
+jamais par le modèle.
 """
 
 from concurrent.futures import ThreadPoolExecutor
@@ -16,7 +17,38 @@ from app.mcp.storage.tools.capacity import get_capacity
 
 _DISK_ALERT_THRESHOLD_PERCENT = 90
 _DISK_CRITICAL_THRESHOLD_PERCENT = 95
+
+# Un job est périmé quand il a dépassé sa propre cadence d'une demi-période :
+# une sauvegarde quotidienne alerte à 36 h, une hebdomadaire à 10 j et demi.
+# Un seuil unique de 24 h faisait alerter tous les jours `backup-restore-test`,
+# hebdomadaire par construction, alors qu'il tournait exactement comme prévu.
+_BACKUP_STALE_GRACE = 1.5
+
+# Plancher, et repli quand la cadence est inconnue (timer monotone, VM qui n'a
+# pas répondu). En deçà, l'âge du dernier point de restauration ne dit rien
+# d'inquiétant : un job horaire en retard d'une heure n'est pas un incident.
 _BACKUP_STALE_HOURS = 24
+
+
+def stale_after_hours(job: dict) -> int:
+    """Âge à partir duquel le dernier succès de ce job devient anormal."""
+    interval = job.get("expected_interval_hours")
+    if not interval:
+        return _BACKUP_STALE_HOURS
+    return max(int(interval * _BACKUP_STALE_GRACE), _BACKUP_STALE_HOURS)
+
+
+def describe_interval(hours: int | None) -> str:
+    """Cadence en clair, pour un message lu par un humain."""
+    if not hours:
+        return "on no fixed schedule"
+    if hours % 168 == 0:
+        weeks = hours // 168
+        return "weekly" if weeks == 1 else f"every {weeks} weeks"
+    if hours % 24 == 0:
+        days = hours // 24
+        return "daily" if days == 1 else f"every {days} days"
+    return f"every {hours}h"
 
 
 def get_storage_health() -> dict:
@@ -55,11 +87,14 @@ def get_storage_health() -> dict:
             })
 
         hours_ago = job.get("hours_since_last_success", 0)
-        if hours_ago >= _BACKUP_STALE_HOURS:
+        if hours_ago >= stale_after_hours(job):
+            cadence = describe_interval(job.get("expected_interval_hours"))
             alerts.append({
                 "type": "backup_stale",
                 "severity": "medium",
-                "message": f"Last successful backup {hours_ago}h ago for {job.get('job_id')}",
+                "message": (
+                    f"{job.get('job_id')} runs {cadence} but last succeeded {hours_ago}h ago"
+                ),
                 "target": job.get("job_id"),
             })
 

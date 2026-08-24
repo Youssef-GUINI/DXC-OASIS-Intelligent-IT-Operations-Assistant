@@ -24,7 +24,7 @@ from app.schemas.chat import (
     ConversationOut,
     ConversationUpdate,
 )
-from app.services import chat_service
+from app.services import chat_service, incident_investigation, incident_service
 
 router = APIRouter(prefix="/storage", tags=["storage"])
 
@@ -94,11 +94,24 @@ async def chat(
         conversation = _require_conversation(db, current_user, payload.conversation_id)
         history = chat_service.history_for_llm(db, conversation.id)
 
+    # Un fil ouvert depuis un incident garde son contexte à chaque tour : sans
+    # cela, la deuxième question de l'investigation retomberait sur un agent
+    # qui ne sait plus de quel ticket on parle, et les actions qu'il proposerait
+    # ne seraient rattachées à rien.
+    incident = None
+    if conversation is not None and conversation.incident_ticket_id is not None:
+        ticket = incident_service.get_ticket(db, conversation.incident_ticket_id)
+        if ticket is not None:
+            incident = incident_investigation.context_for(ticket)
+
     # created_by=current_user.id -- permet à agent.py de créer automatiquement
     # un IncidentTicket (attribué à cet utilisateur) si une anomalie
     # HIGH/CRITICAL est détectée pendant la conversation.
-    answer = await storage_persona.handle_message(
-        payload.message, created_by=current_user.id, history=history
+    turn = await storage_persona.handle_message(
+        payload.message,
+        created_by=current_user.id,
+        history=history,
+        incident=incident,
     )
 
     # Rien n'est écrit avant la réponse : si l'agent échoue, l'exception
@@ -110,10 +123,12 @@ async def chat(
         )
 
     user_message, assistant_message = chat_service.save_turn(
-        db, conversation, question=payload.message, answer=answer
+        db, conversation, question=payload.message, answer=turn.text
     )
+    chat_service.attach_actions(db, assistant_message, turn.proposed_action_ids)
+
     return ChatTurnOut(
-        response=answer,
+        response=turn.text,
         conversation=ConversationOut.model_validate(conversation),
         user_message=ChatMessageOut.model_validate(user_message),
         assistant_message=ChatMessageOut.model_validate(assistant_message),

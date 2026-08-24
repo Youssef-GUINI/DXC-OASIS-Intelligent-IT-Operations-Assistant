@@ -8,6 +8,9 @@ from app.models.mcp_call import MCPCall
 from app.models.knowledge_document import KnowledgeDocument
 from app.models.metric import DiskMetric
 from app.models.chat_message import ChatConversation, ChatMessage
+from app.models.service_request import (
+    RequestAttachment, RequestEvent, RequestMessage, ServiceRequest,
+)
 
 __all__ = [
     "Role",
@@ -22,4 +25,8 @@ __all__ = [
     "DiskMetric",
     "ChatConversation",
     "ChatMessage",
+    "ServiceRequest",
+    "RequestMessage",
+    "RequestAttachment",
+    "RequestEvent",
 ]

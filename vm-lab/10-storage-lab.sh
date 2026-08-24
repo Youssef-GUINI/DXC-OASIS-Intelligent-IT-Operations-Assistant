@@ -225,6 +225,24 @@ fi
 # ------------------------------------------------------- jobs de sauvegarde
 step "Jobs de sauvegarde (timers systemd)"
 
+# Un dépôt restic ne tolère qu'une opération exclusive à la fois, et les trois
+# jobs ci-dessous partagent le même dépôt : forget --prune et check y prennent
+# un verrou. Lancés dans la même seconde -- ce que produit une démonstration,
+# ou le rattrapage des timers Persistent=true après un redémarrage -- le second
+# meurt sur « repository is already locked », alors même que sa sauvegarde a
+# réussi : seule la rétention a échoué, et le job passe en failed. flock les
+# met en file d'attente au lieu de les laisser se percuter ; --verbose écrit
+# l'attente (ou son expiration) dans le journal, pour que l'échec reste lisible
+# si la file ne se vide jamais.
+RESTIC_LOCK=/run/lock/oasis-restic-repo.lock
+RESTIC_LOCK_WAIT=900
+
+# Une unit systemd n'a ni HOME ni XDG_CACHE_HOME : restic renonce alors à son
+# cache et prévient qu'« un prune sans cache peut être très lent ». Un chemin
+# explicite lui en rend un.
+RESTIC_CACHE_DIR_PATH=/var/cache/restic
+install -d -m 700 "$RESTIC_CACHE_DIR_PATH"
+
 # Le tool list_backups reconnaît un job à son nom : tout timer contenant
 # "backup" apparaît dans l'application.
 write_job() {
@@ -237,8 +255,9 @@ Requires=oasis-lab-storage.service
 
 [Service]
 Type=oneshot
+Environment=RESTIC_CACHE_DIR=${RESTIC_CACHE_DIR_PATH}
 EnvironmentFile=${CONFIG_DIR}/backup.env
-ExecStart=/bin/bash -c '${command}'
+ExecStart=/usr/bin/flock --verbose --wait ${RESTIC_LOCK_WAIT} ${RESTIC_LOCK} /bin/bash -c '${command}'
 UNIT
 
     cat > "/etc/systemd/system/${name}.timer" <<UNIT
@@ -288,12 +307,22 @@ step "Droits sudo pour l'utilisateur SSH du backend (${SSH_USER})"
 
 # Les tools exécutent lvcreate / lvconvert via sudo sur une session SSH sans
 # terminal : sans NOPASSWD, sudo attend un mot de passe et la commande échoue.
+#
+# Les deux dernières règles servent à repair_backup_repository, qui dépose un
+# drop-in systemd. Elles sont volontairement étroites : les arguments sont
+# figés dans la règle, donc le compte ne peut écrire *que* le fichier
+# 50-oasis-repair.conf d'un répertoire .d, et rien d'autre sous /etc. Le
+# joker sudoers ne franchit pas les « / », ce qui interdit toute évasion par
+# chemin relatif. Si DROP_IN_NAME change dans
+# backend/app/mcp/storage/tools/repair.py, il faut le changer ici aussi.
 SUDOERS_FILE=/etc/sudoers.d/oasis-storage
 cat > "$SUDOERS_FILE" <<SUDOERS
 # Généré par vm-lab/10-storage-lab.sh — actions Storage pilotées par OASIS.
 ${SSH_USER} ALL=(root) NOPASSWD: /usr/sbin/lvs, /usr/sbin/vgs, /usr/sbin/pvs, \\
     /usr/sbin/lvcreate, /usr/sbin/lvremove, /usr/sbin/lvextend, /usr/sbin/lvconvert, \\
-    /usr/bin/systemctl, /usr/bin/restic, /usr/bin/journalctl
+    /usr/bin/systemctl, /usr/bin/restic, /usr/bin/journalctl, \\
+    /usr/bin/install -d -m 755 /etc/systemd/system/*.d, \\
+    /usr/bin/tee /etc/systemd/system/*.d/50-oasis-repair.conf
 SUDOERS
 chmod 440 "$SUDOERS_FILE"
 if ! visudo -cf "$SUDOERS_FILE" >/dev/null; then

@@ -120,7 +120,18 @@ def check_backup_status(job: dict[str, Any]) -> Optional[dict]:
                 "requires_confirmation": False,
             },
             {
+                # Avant de relancer : un job dont le depot restic est
+                # introuvable echouera exactement de la meme facon au
+                # deuxieme essai. L'outil est idempotent -- si le depot
+                # repond, il le dit et ne touche a rien.
                 "order": 2,
+                "description": f"Repair the repository configured for {name} if it cannot be opened",
+                "action_type": "repair_backup_repository",
+                "target": name,
+                "requires_confirmation": True,
+            },
+            {
+                "order": 3,
                 "description": f"Re-run backup job {name}",
                 "action_type": "run_backup",
                 "target": name,

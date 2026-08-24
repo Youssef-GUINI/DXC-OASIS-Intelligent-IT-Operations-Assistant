@@ -83,7 +83,7 @@ def _system_user_id(db: Session) -> Optional[int]:
     user = User(
         email=SYSTEM_ACCOUNT_EMAIL,
         hashed_password=hash_password(secrets.token_urlsafe(32)),
-        full_name="OASIS (surveillance automatique)",
+        full_name="OASIS (automatic monitoring)",
         is_active=False,
         role_id=role.id,
     )
@@ -131,6 +131,52 @@ def _already_handled(ticket: Optional[IncidentTicket], last_run: Optional[dateti
     return ticket.created_at >= last_run
 
 
+def _verify_resolved(db: Session, jobs: list[dict], author_id: int) -> list[str]:
+    """
+    Referme les tickets dont la remédiation confirmée a produit son effet.
+
+    La vérification faite juste après un clic sur « Confirmer » est souvent
+    non concluante : un job systemd oneshot tourne encore quelques secondes
+    après `systemctl start`. C'est donc ici, au passage suivant, que le cycle
+    se referme -- au même endroit et sur la même lecture qui l'avait ouvert.
+
+    La clôture exige qu'une action confirmée ait été exécutée sur le ticket :
+    un incident ne disparaît pas parce que la VM va mieux toute seule, sinon
+    un job qui réussit spontanément clôturerait un ticket que personne n'a
+    traité, et l'échec précédent ne serait jamais examiné.
+    """
+    by_job = {job.get("job_id"): job for job in jobs if job.get("job_id")}
+    if not by_job:
+        return []
+
+    open_tickets = db.execute(
+        select(IncidentTicket).where(
+            IncidentTicket.status.in_([IncidentStatus.OPEN, IncidentStatus.IN_PROGRESS])
+        )
+    ).scalars().all()
+
+    closed: list[str] = []
+    for ticket in open_tickets:
+        job = by_job.get((ticket.mcp_data or {}).get("job_id"))
+        if job is None or job.get("status") == "running":
+            continue
+        if check_backup_status(job) is not None:
+            continue
+        if not incident_service.has_completed_action(db, ticket.id):
+            continue
+
+        incident_service.resolve_ticket(
+            db, ticket, author_id=author_id,
+            reason=(
+                f"Incident closed automatically: verified on the VM, job "
+                f"{job['job_id']} is now \"{job.get('status')}\" after the "
+                f"confirmed remediation."
+            ),
+        )
+        closed.append(ticket.ticket_number)
+    return closed
+
+
 def scan_once() -> dict:
     """
     Un passage de surveillance. Renvoie un compte rendu, jamais d'exception :
@@ -138,20 +184,27 @@ def scan_once() -> dict:
     """
     backups = list_backups()
     if backups.get("error"):
-        return {"error": backups["error"], "created": [], "skipped": []}
+        return {"error": backups["error"], "created": [], "skipped": [], "closed": []}
 
-    failed = [job for job in backups.get("jobs", []) if job.get("status") == "failed"]
-    if not failed:
-        return {"created": [], "skipped": [], "checked": len(backups.get("jobs", []))}
+    jobs = backups.get("jobs", [])
+    failed = [job for job in jobs if job.get("status") == "failed"]
 
     created: list[str] = []
     skipped: list[str] = []
+    closed: list[str] = []
 
     db = SessionLocal()
     try:
         author_id = _system_user_id(db)
         if author_id is None:
-            return {"error": "compte de service indisponible", "created": [], "skipped": []}
+            return {
+                "error": "compte de service indisponible",
+                "created": [], "skipped": [], "closed": [],
+            }
+
+        # La vérification passe d'abord : un ticket clos au même cycle ne doit
+        # pas être rouvert par la boucle de détection qui suit.
+        closed = _verify_resolved(db, jobs, author_id)
 
         for job in failed:
             ticket_data = check_backup_status(job)
@@ -166,11 +219,23 @@ def scan_once() -> dict:
             ticket = incident_service.create_ticket_from_diagnosis(
                 db, created_by=author_id, **ticket_data,
             )
+            # Première entrée de la piste d'audit : elle dit d'où vient le
+            # ticket. Un ticket rouvert par la même détection en a déjà une,
+            # on ne la réécrit pas à chaque passage.
+            if not ticket.notes:
+                incident_service.add_note(
+                    db, ticket_id=ticket.id, author_id=author_id,
+                    content=(
+                        f"Detected automatically by monitoring: job "
+                        f"{job.get('job_id', '?')} came back failed "
+                        f"(systemd result: {job.get('error_code') or 'unknown'})."
+                    ),
+                )
             created.append(ticket.ticket_number)
     finally:
         db.close()
 
-    return {"created": created, "skipped": skipped, "checked": len(backups.get("jobs", []))}
+    return {"created": created, "skipped": skipped, "closed": closed, "checked": len(jobs)}
 
 
 async def run_forever() -> None:
@@ -180,11 +245,17 @@ async def run_forever() -> None:
             if report.get("error"):
                 # VM éteinte ou injoignable : normal en développement.
                 logger.info("Surveillance des sauvegardes ignorée : %s", report["error"])
-            elif report["created"]:
-                logger.warning(
-                    "Sauvegarde en échec détectée, ticket(s) ouvert(s) : %s",
-                    ", ".join(report["created"]),
-                )
+            else:
+                if report["created"]:
+                    logger.warning(
+                        "Sauvegarde en échec détectée, ticket(s) ouvert(s) : %s",
+                        ", ".join(report["created"]),
+                    )
+                if report.get("closed"):
+                    logger.info(
+                        "Remédiation vérifiée, ticket(s) clos : %s",
+                        ", ".join(report["closed"]),
+                    )
         except asyncio.CancelledError:
             raise
         except Exception:
