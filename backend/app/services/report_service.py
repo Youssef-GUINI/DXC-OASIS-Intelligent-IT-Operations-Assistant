@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from typing import Any
 
@@ -64,6 +64,8 @@ _STATUS_COLORS = {
     "high": colors.HexColor("#ea580c"),
     "open": colors.HexColor("#dc2626"),
     "unknown": _MUTED,
+    "à confirmer": colors.HexColor("#d97706"),
+    "proposée": _MUTED,
 }
 
 
@@ -177,6 +179,104 @@ def _format_datetime(value: datetime | None) -> str:
     if value is None:
         return "-"
     return value.strftime("%d/%m/%Y %H:%M")
+
+
+def _as_utc(value: datetime | None) -> datetime | None:
+    """
+    Ramène une date à un datetime aware.
+
+    Les colonnes sont déclarées `timezone=True`, mais un ticket résolu dans la
+    même session porte encore le `datetime.utcnow()` naïf écrit par
+    `incident_service` : les soustraire ferait lever un TypeError au moment où
+    l'ingénieur télécharge le rapport.
+    """
+    if value is None:
+        return None
+    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+
+
+def _format_duration(delta: timedelta) -> str:
+    minutes = max(int(delta.total_seconds() // 60), 0)
+    if minutes < 60:
+        return f"{minutes} min"
+    hours, minutes = divmod(minutes, 60)
+    if hours < 24:
+        return f"{hours} h {minutes:02d}"
+    days, hours = divmod(hours, 24)
+    return f"{days} j {hours} h"
+
+
+def _resolution_text(ticket: IncidentTicket) -> str:
+    """
+    Contenu de la case « Résolu le ».
+
+    Un tiret ne disait pas si l'incident était encore ouvert ou si la date
+    manquait : la case porte désormais l'état réel, et le délai — temps de
+    résolution pour un ticket fermé, ancienneté pour un ticket ouvert.
+    """
+    created = _as_utc(ticket.created_at)
+    resolved = _as_utc(ticket.resolved_at)
+
+    if resolved is not None:
+        text = _format_datetime(ticket.resolved_at)
+        if created is not None:
+            text += (
+                f"<br/><font size='7.5' color='#64748b'>"
+                f"Résolu en {_format_duration(resolved - created)}</font>"
+            )
+        return text
+
+    if ticket.status == IncidentStatus.CLOSED:
+        label = "Clôturé sans date de résolution"
+    elif ticket.status == IncidentStatus.IN_PROGRESS:
+        label = "Non résolu — traitement en cours"
+    else:
+        label = "Non résolu — ticket ouvert"
+
+    if created is not None:
+        label += (
+            f"<br/><font size='7.5' color='#64748b'>"
+            f"Ouvert depuis {_format_duration(datetime.now(timezone.utc) - created)}</font>"
+        )
+    return label
+
+
+def _derived_root_cause(ticket: IncidentTicket) -> str | None:
+    """
+    Cause racine provisoire, reconstituée à partir des mesures du ticket.
+
+    `root_cause` n'est écrit que par la passe de synthèse de l'investigation :
+    tant qu'aucun ingénieur n'a lancé le diagnostic, le rapport annonçait une
+    cause « non établie » alors que la mesure qui a ouvert l'incident, elle,
+    est connue et stockée. On la restitue telle quelle, sans l'interpréter, et
+    le rapport précise juste en dessous que c'est un constat d'ouverture et non
+    une analyse. Retourne None quand les données ne permettent rien d'affirmer.
+    """
+    data = ticket.mcp_data if isinstance(ticket.mcp_data, dict) else {}
+
+    job_id = data.get("job_id")
+    if job_id and str(data.get("status", "")).strip().lower() == "failed":
+        detail = f" (résultat systemd : {data['error_code']})" if data.get("error_code") else ""
+        text = f"Le job de sauvegarde {job_id} s'est terminé en échec{detail}"
+        target = data.get("target")
+        if target:
+            text += f", sur la cible {target}"
+        last_run = str(data.get("last_run") or "")[:16].replace("T", " ")
+        if last_run:
+            text += f", lors de l'exécution du {last_run}"
+        return text + "."
+
+    percent = data.get("percent_used")
+    if percent is not None:
+        volume = data.get("volume_id") or data.get("mountpoint") or ticket.affected_system
+        text = f"Le volume {volume} atteint {percent}% d'occupation"
+        if data.get("used_gb") is not None and data.get("total_gb") is not None:
+            text += f" ({data['used_gb']} / {data['total_gb']} Go)"
+        if data.get("mountpoint") and data.get("mountpoint") != volume:
+            text += f", monté sur {data['mountpoint']}"
+        return text + "."
+
+    return None
 
 
 def _escape(value: Any) -> str:
@@ -405,24 +505,43 @@ def build_incident_report(
                 ticket.status.value,
                 Paragraph(_escape(ticket.affected_system), styles["cell"]),
                 _format_datetime(ticket.created_at),
-                _format_datetime(ticket.resolved_at),
+                Paragraph(_resolution_text(ticket), styles["cell"]),
             ],
         ],
-        [24 * mm, 26 * mm, 50 * mm, 30 * mm, 30 * mm],
+        [24 * mm, 26 * mm, 44 * mm, 26 * mm, 40 * mm],
         status_column=0,
     ))
 
     # --- Analyse ----------------------------------------------------------
-    for heading, value, fallback in (
-        ("Description", ticket.description, "Aucune description."),
-        ("Cause racine", ticket.root_cause, "Cause racine non établie à ce jour."),
-        ("Impact", ticket.impact_summary, "Impact non renseigné."),
+    # La cause racine établie est celle de l'investigation. À défaut, le rapport
+    # rend le constat qui a ouvert l'incident plutôt qu'une case vide -- en
+    # disant lequel des deux il montre.
+    derived_cause = None if ticket.root_cause else _derived_root_cause(ticket)
+    cause_note = (
+        None if ticket.root_cause
+        else "Constat relevé sur l'environnement à l'ouverture de l'incident. "
+             "Le diagnostic détaillé n'a pas encore été mené : cette cause reste "
+             "à confirmer par l'investigation."
+    )
+
+    for heading, value, fallback, note in (
+        ("Description", ticket.description, "Aucune description.", None),
+        (
+            "Cause racine",
+            ticket.root_cause or derived_cause,
+            "Cause racine non établie à ce jour.",
+            cause_note,
+        ),
+        ("Impact", ticket.impact_summary, "Impact non renseigné.", None),
     ):
         story.append(Paragraph(heading, styles["section"]))
         story.append(Paragraph(
             _escape(value) if value else fallback,
             styles["body"] if value else styles["muted"],
         ))
+        if value and note:
+            story.append(Spacer(1, 4))
+            story.append(Paragraph(note, styles["muted"]))
 
     # --- Recommandations --------------------------------------------------
     story.append(Paragraph("Recommandations", styles["section"]))
@@ -454,7 +573,36 @@ def build_incident_report(
             rows, [40 * mm, 44 * mm, 24 * mm, 28 * mm, 28 * mm], status_column=2,
         ))
     else:
-        story.append(Paragraph("Aucune action n'a été demandée sur cet incident.", styles["muted"]))
+        # Aucune action n'a encore été demandée : le rapport montre alors les
+        # remédiations que l'agent a proposées et qui attendent une décision.
+        # C'est l'information utile à qui lit le rapport pour savoir quoi faire.
+        proposed = [
+            item for item in (ticket.recommendations or [])
+            if isinstance(item, dict) and item.get("action_type")
+        ]
+        if proposed:
+            story.append(Paragraph(
+                "Aucune action n'a encore été exécutée. Les remédiations ci-dessous "
+                "ont été proposées par OASIS et attendent la décision d'un ingénieur.",
+                styles["muted"],
+            ))
+            story.append(Spacer(1, 6))
+            rows = [["Action proposée", "Cible", "Statut"]]
+            rows += [
+                [
+                    Paragraph(_escape(item.get("action_type")), styles["cell"]),
+                    Paragraph(_escape(item.get("target") or ticket.affected_system), styles["cell"]),
+                    "à confirmer" if item.get("requires_confirmation") else "proposée",
+                ]
+                for item in proposed
+            ]
+            story.append(_table(rows, [54 * mm, 80 * mm, 30 * mm], status_column=2))
+        else:
+            story.append(Paragraph(
+                "Aucune action n'a été demandée sur cet incident, et aucune remédiation "
+                "automatisable n'a été proposée.",
+                styles["muted"],
+            ))
 
     # --- Journal ----------------------------------------------------------
     story.append(Paragraph("Journal de traitement", styles["section"]))
