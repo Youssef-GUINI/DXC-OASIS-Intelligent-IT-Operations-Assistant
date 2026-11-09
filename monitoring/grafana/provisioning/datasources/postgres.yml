@@ -1,0 +1,35 @@
+# monitoring/grafana/provisioning/datasources/postgres.yml
+#
+# Connexion de Grafana à la base PostgreSQL d'OpsCopilot, déclarée dans un
+# fichier plutôt que cliquée dans l'interface : elle est versionnée dans git
+# et recréée à l'identique à chaque démarrage du conteneur.
+#
+# Les valeurs ${...} sont lues dans les variables d'environnement du
+# conteneur (docker-compose.yml) : aucun secret n'est écrit ici.
+
+apiVersion: 1
+
+datasources:
+  - name: OpsCopilot PostgreSQL
+    # Identifiant fixe : le tableau de bord (étape 4) référence la source par
+    # cet uid, il ne dépend donc pas du nom affiché.
+    uid: opscopilot-pg
+    type: grafana-postgresql-datasource
+    access: proxy
+    # "db" est le nom du service PostgreSQL dans docker-compose.yml : les
+    # conteneurs d'un même compose se joignent par leur nom de service.
+    url: db:5432
+    user: grafana_ro
+    isDefault: true
+    # Modifiable seulement via ce fichier, pas depuis l'interface
+    editable: false
+    jsonData:
+      database: ${POSTGRES_DB}
+      sslmode: disable          # trafic interne au réseau Docker
+      postgresVersion: 1600     # PostgreSQL 16
+      timescaledb: false
+      maxOpenConns: 5           # Grafana ne doit pas monopoliser la base de l'application
+      maxIdleConns: 2
+      connMaxLifetime: 14400
+    secureJsonData:
+      password: ${GRAFANA_DB_PASSWORD}

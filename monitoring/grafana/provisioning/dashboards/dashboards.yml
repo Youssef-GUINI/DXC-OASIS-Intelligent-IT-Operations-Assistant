@@ -1,0 +1,20 @@
+# monitoring/grafana/provisioning/dashboards/dashboards.yml
+#
+# Dit à Grafana où trouver les tableaux de bord versionnés dans git
+# (monitoring/grafana/dashboards/, monté dans le conteneur par docker-compose).
+
+apiVersion: 1
+
+providers:
+  - name: OpsCopilot
+    folder: OpsCopilot
+    type: file
+    # Le fichier JSON est la source de vérité : pas de suppression ni de
+    # modification enregistrée depuis l'interface.
+    disableDeletion: true
+    allowUiUpdates: false
+    # Grafana relit le dossier toutes les 30 s : modifier le JSON suffit,
+    # sans redémarrer le conteneur.
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards

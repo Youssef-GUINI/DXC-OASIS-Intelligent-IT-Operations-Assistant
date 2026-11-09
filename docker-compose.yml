@@ -26,6 +26,40 @@ services:
     volumes:
       - chroma_data:/chroma/chroma
 
+  # Supervision : tableaux de bord sur les données d'OpsCopilot (incidents,
+  # appels MCP, actions, métriques disque). Grafana lit PostgreSQL avec le
+  # compte en lecture seule grafana_ro (monitoring/grafana/readonly_user.sql).
+  #
+  # Service optionnel (profil "monitoring") : `docker compose up -d` ne démarre
+  # que la base et ChromaDB ; `docker compose --profile monitoring up -d`
+  # ajoute Grafana.
+  grafana:
+    image: grafana/grafana-oss:11.4.0
+    container_name: oasis_grafana
+    profiles: ["monitoring"]
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # Compte administrateur de l'interface Grafana (rien à voir avec PostgreSQL).
+      # Sans GRAFANA_ADMIN_PASSWORD dans .env, Grafana démarre en admin/admin et
+      # impose un nouveau mot de passe à la première connexion.
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      # Lus par la datasource provisionnée (provisioning/datasources/postgres.yml)
+      POSTGRES_DB: ${POSTGRES_DB}
+      GRAFANA_DB_PASSWORD: ${GRAFANA_DB_PASSWORD:-}
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+
 volumes:
   postgres_data:
   chroma_data:
+  grafana_data:

@@ -1,0 +1,328 @@
+{
+  "uid": "opscopilot-overview",
+  "title": "OpsCopilot — Supervision Storage & Backup",
+  "description": "Incidents, MTTR, appels d'outils MCP, validation humaine et performance disque, lus dans PostgreSQL (compte grafana_ro).",
+  "tags": ["opscopilot", "storage", "aiops"],
+  "timezone": "browser",
+  "editable": false,
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "time": { "from": "now-7d", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Incidents ouverts",
+      "description": "Tickets au statut OPEN ou IN_PROGRESS, quelle que soit leur date.",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "opscopilot-pg" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "opscopilot-pg" },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT count(*) AS \"Incidents ouverts\"\nFROM incident_tickets\nWHERE status IN ('OPEN', 'IN_PROGRESS')"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 1 },
+              { "color": "red", "value": 5 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "MTTR (temps moyen de résolution)",
+      "description": "Moyenne de resolved_at - created_at sur les incidents résolus de la période.",
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "opscopilot-pg" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "opscopilot-pg" },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT avg(extract(epoch FROM resolved_at - created_at)) AS \"MTTR\"\nFROM incident_tickets\nWHERE resolved_at IS NOT NULL\n  AND $__timeFilter(created_at)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 1,
+          "noValue": "Aucun incident résolu",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] }
+        },
+        "overrides": []
+      },
+      "options": { "colorMode": "value", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Succès des appels MCP",
+      "description": "Part des appels d'outils MCP au statut SUCCESS (les refus du garde-fou comptent comme non réussis).",
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "opscopilot-pg" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "opscopilot-pg" },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT 100.0 * count(*) FILTER (WHERE status = 'SUCCESS') / NULLIF(count(*), 0) AS \"Succès\"\nFROM mcp_calls\nWHERE $__timeFilter(created_at)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "min": 0,
+          "max": 100,
+          "noValue": "Aucun appel",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "orange", "value": 80 },
+              { "color": "green", "value": 95 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": { "colorMode": "value", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Délai de validation humaine",
+      "description": "Temps moyen entre la proposition d'une action de remédiation par l'agent et sa confirmation par l'ingénieur.",
+      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "opscopilot-pg" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "opscopilot-pg" },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT avg(extract(epoch FROM confirmed_at - created_at)) AS \"Délai\"\nFROM action_requests\nWHERE confirmed_at IS NOT NULL\n  AND $__timeFilter(created_at)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 1,
+          "noValue": "Aucune action confirmée",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "purple", "value": null }] }
+        },
+        "overrides": []
+      },
+      "options": { "colorMode": "value", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Incidents ouverts par sévérité",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "opscopilot-pg" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "opscopilot-pg" },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "time_series",
+          "rawSql": "SELECT $__timeGroupAlias(created_at, '1h'),\n       severity::text AS metric,\n       count(*) AS value\nFROM incident_tickets\nWHERE $__timeFilter(created_at)\nGROUP BY 1, 2\nORDER BY 1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": { "drawStyle": "bars", "fillOpacity": 80, "stacking": { "mode": "normal" } }
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "CRITICAL" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "dark-red" } }] },
+          { "matcher": { "id": "byName", "options": "HIGH" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }] },
+          { "matcher": { "id": "byName", "options": "MEDIUM" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "yellow" } }] },
+          { "matcher": { "id": "byName", "options": "LOW" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "blue" } }] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+    },
+    {
+      "id": 6,
+      "type": "barchart",
+      "title": "Appels d'outils MCP par outil et par statut",
+      "description": "DENIED = appel bloqué par le garde-fou (action destructive sans confirmation).",
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "opscopilot-pg" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "opscopilot-pg" },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT tool_name AS \"Outil\",\n       count(*) FILTER (WHERE status = 'SUCCESS') AS \"Succès\",\n       count(*) FILTER (WHERE status = 'FAILED')  AS \"Échec\",\n       count(*) FILTER (WHERE status = 'DENIED')  AS \"Refusé\"\nFROM mcp_calls\nWHERE $__timeFilter(created_at)\nGROUP BY tool_name\nORDER BY count(*) DESC"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "none", "custom": { "fillOpacity": 80 } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Succès" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } }] },
+          { "matcher": { "id": "byName", "options": "Échec" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }] },
+          { "matcher": { "id": "byName", "options": "Refusé" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "purple" } }] }
+        ]
+      },
+      "options": {
+        "xField": "Outil",
+        "orientation": "horizontal",
+        "stacking": "normal",
+        "showValue": "auto",
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Latence disque (ms)",
+      "description": "Échantillons de /proc/diskstats prélevés toutes les 5 minutes (table disk_metrics).",
+      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "opscopilot-pg" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "opscopilot-pg" },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "time_series",
+          "rawSql": "SELECT $__timeGroupAlias(recorded_at, $__interval),\n       device AS metric,\n       avg(latency_ms) AS value\nFROM disk_metrics\nWHERE $__timeFilter(recorded_at)\nGROUP BY 1, 2\nORDER BY 1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ms", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "IOPS et débit disque",
+      "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "opscopilot-pg" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "opscopilot-pg" },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "time_series",
+          "rawSql": "SELECT $__timeGroupAlias(recorded_at, $__interval),\n       device || ' IOPS' AS metric,\n       avg(iops) AS value\nFROM disk_metrics\nWHERE $__timeFilter(recorded_at)\nGROUP BY 1, 2\nORDER BY 1"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "opscopilot-pg" },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "time_series",
+          "rawSql": "SELECT $__timeGroupAlias(recorded_at, $__interval),\n       device || ' Mo/s' AS metric,\n       avg(throughput_mbps) AS value\nFROM disk_metrics\nWHERE $__timeFilter(recorded_at)\nGROUP BY 1, 2\nORDER BY 1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "none", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 } },
+        "overrides": [
+          {
+            "matcher": { "id": "byRegexp", "options": ".* Mo/s" },
+            "properties": [
+              { "id": "unit", "value": "MBs" },
+              { "id": "custom.axisPlacement", "value": "right" },
+              { "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [10, 10] } }
+            ]
+          }
+        ]
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+    },
+    {
+      "id": 9,
+      "type": "table",
+      "title": "Derniers incidents",
+      "gridPos": { "x": 0, "y": 20, "w": 24, "h": 8 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "opscopilot-pg" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "opscopilot-pg" },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT ticket_number AS \"Ticket\",\n       title AS \"Titre\",\n       severity::text AS \"Sévérité\",\n       status::text AS \"Statut\",\n       affected_system AS \"Système\",\n       created_at AS \"Ouvert le\",\n       resolved_at AS \"Résolu le\",\n       round(extract(epoch FROM resolved_at - created_at) / 60) AS \"Durée (min)\"\nFROM incident_tickets\nWHERE $__timeFilter(created_at)\nORDER BY created_at DESC\nLIMIT 20"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Sévérité" },
+            "properties": [
+              { "id": "custom.cellOptions", "value": { "type": "color-background" } },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "CRITICAL": { "color": "dark-red", "index": 0 },
+                      "HIGH": { "color": "orange", "index": 1 },
+                      "MEDIUM": { "color": "yellow", "index": 2 },
+                      "LOW": { "color": "blue", "index": 3 }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": { "showHeader": true, "cellHeight": "sm" }
+    },
+    {
+      "id": 10,
+      "type": "table",
+      "title": "Actions de remédiation (human-in-the-loop)",
+      "description": "Chaque action proposée par l'agent : quand elle a été proposée, confirmée par l'ingénieur, puis exécutée.",
+      "gridPos": { "x": 0, "y": 28, "w": 24, "h": 8 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "opscopilot-pg" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "opscopilot-pg" },
+          "editorMode": "code",
+          "rawQuery": true,
+          "format": "table",
+          "rawSql": "SELECT action_type AS \"Action\",\n       target AS \"Cible\",\n       status::text AS \"Statut\",\n       created_at AS \"Proposée le\",\n       confirmed_at AS \"Confirmée le\",\n       completed_at AS \"Terminée le\"\nFROM action_requests\nWHERE $__timeFilter(created_at)\nORDER BY created_at DESC\nLIMIT 20"
+        }
+      ],
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "options": { "showHeader": true, "cellHeight": "sm" }
+    }
+  ]
+}
